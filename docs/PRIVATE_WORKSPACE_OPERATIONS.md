@@ -265,7 +265,7 @@ deadline uses a 21-day window; neither window establishes official availability.
 
 ## Import an agent's review
 
-The [board setup prompt](AI_SETUP.md#2-create-your-first-board) asks your AI to
+The [board setup prompt](AI_SETUP.md#2-get-your-first-recommendations) asks your AI to
 review and import its findings. For a manual import of a saved `review.json`,
 run:
 
