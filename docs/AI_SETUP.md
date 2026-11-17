@@ -1,4 +1,4 @@
-# Set up your profile and first board
+# Set up your profile and first recommendations
 
 Follow these steps after installing with the Student Workspace setup.
 Open your Student Workspace folder as a project in your AI tool. It needs
@@ -31,19 +31,18 @@ Read `knowledge/PROFILE.md` to check what it understood.
 `knowledge/CATALOG.md` points to useful supporting material.
 You can customize WORKSPACE.md to suit how you want your AI to work.
 
-The AI also saves a structured screening profile under `.student-workspace/`. It translates
-your preferences into rules ordinary code can use, including metropolitan
-regions and city aliases. You do not need to write JSON or choose an AI provider
-inside the app. Check the AI's summary of the regions and other settings.
-The selected opportunity focus sets which leads appear first. Early mode keeps
-broadly related exploratory programs visible even when fit needs clarification.
+The AI also saves your preferences (locations, interests and the kind of
+opportunities you want) as settings the app uses to rank leads. Check its
+summary and correct anything it got wrong. If you chose early programs, broadly
+related exploratory programs stay visible even when fit is unclear.
 
 To add something later, give it to your AI and ask it to update your profile
 and catalog.
 
-## 2. Create your first board
+## 2. Get your first recommendations
 
-Send this prompt when you want recommendations:
+Your board is the list of opportunities your AI has reviewed and recommends.
+Send this prompt to create it:
 
 > Read WORKSPACE.md and the current review instructions in
 > tools/opportunity-discovery/docs/PRIVATE_WORKSPACE_OPERATIONS.md and
@@ -83,8 +82,8 @@ item, and **Restore** to bring either back.
 Daily collection, if you turned it on in setup, adds new leads to Explore but
 doesn't update Home; to turn it on later, see
 [Collection on Windows](OPERATIONS_WINDOWS.md#daily-collection). To refresh
-recommendations, stop the dashboard and send the step 2 prompt again. Screening
-itself is ordinary code; only the research your AI does uses your AI tool.
+recommendations, stop the dashboard and send the step 2 prompt again. Ranking
+runs locally; only the research your AI does uses your AI tool.
 
 For application drafts, select an opportunity's **Application preparation**
 section and describe what you want. Give the resulting HANDOFF.md to your AI.
