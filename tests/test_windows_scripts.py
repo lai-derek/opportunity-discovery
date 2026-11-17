@@ -3,6 +3,7 @@
 import shutil
 import subprocess
 import sys
+import venv
 from pathlib import Path
 
 import pytest
@@ -60,12 +61,12 @@ def _launcher_workspace(root: Path, *, installed: bool) -> Path:
     initialize_workspace(root)
     (root / "Open Dashboard.cmd").write_bytes(DASHBOARD_CMD.encode("utf-8"))
     if installed:
-        # This venv's python.exe stands in for opdisc.exe: "dashboard" is not a script file,
-        # so it exits with code 2 and opens no window or server.
-        venv = root / "tools" / ".venv"
-        (venv / "Scripts").mkdir(parents=True)
-        shutil.copyfile(Path(sys.prefix) / "pyvenv.cfg", venv / "pyvenv.cfg")
-        shutil.copyfile(Path(sys.prefix) / "Scripts" / "python.exe", venv / "Scripts" / "opdisc.exe")
+        # A fresh venv's python.exe stands in for opdisc.exe: "dashboard" is not a script file,
+        # so it exits with code 2 and opens no window or server. Creating the venv here keeps
+        # the test independent of whether pytest itself runs inside one.
+        venv_dir = root / "tools" / ".venv"
+        venv.create(venv_dir, with_pip=False)
+        shutil.copyfile(venv_dir / "Scripts" / "python.exe", venv_dir / "Scripts" / "opdisc.exe")
     return root
 
 
