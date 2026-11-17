@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opportunity-discovery"
-version = "0.2.1"
+version = "0.2.2"
 description = "Deterministic public opportunity-discovery engine producing versioned lead packets for downstream private review."
 readme = "README.md"
 requires-python = ">=3.14"

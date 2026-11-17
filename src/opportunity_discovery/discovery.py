@@ -97,6 +97,13 @@ def list_curated_home(root: Path, *, offset: int = 0, limit: int = 25) -> dict[s
     return {**_page(items, offset, limit), "reviewed_count": reviewed_count}
 
 
+NO_COLLECTION = (
+    "No leads collected yet. Ask your AI to create your first board, or run "
+    r"`.\tools\.venv\Scripts\opdisc.exe --workspace . run` from PowerShell in the workspace folder. "
+    "The first collection takes about 10 minutes."
+)
+
+
 def default_manifest_path(root: Path) -> Path:
     """The workspace's collector export; callers may select another manifest."""
     root, _metadata = require_workspace(root)
@@ -111,6 +118,8 @@ def load_current_queue(
         raise WorkspaceStateError("unsupported public candidate artifact")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise WorkspaceStateError(NO_COLLECTION) from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise WorkspaceStateError(f"current public export unavailable: {exc}") from exc
     manifest = require_object(manifest, "export manifest")

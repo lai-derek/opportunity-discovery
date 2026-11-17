@@ -13,7 +13,7 @@ from .export import export_all
 from .http_client import Fetcher
 from .models import RunSummary
 from .pipeline import Pipeline, expected_opportunities_from_sources
-from .registry import due_sources, load_sources, sync_sources_to_db
+from .registry import collectable, due_sources, load_sources, sync_sources_to_db
 
 log = logging.getLogger(__name__)
 
@@ -32,11 +32,18 @@ def workflow_exit_code(summary: RunSummary) -> int:
     - 0 when no source failed, no sources were due, or at least one
       attempted source succeeded (partial failure is tolerated by design;
       per-source health records the failures).
-    - 1 only when sources were attempted and every attempt failed.
+    - 1 only when sources were attempted, every attempt failed, and no other
+      source is still current from a recent successful check. A repeat run
+      soon after a full one retries only the sources that failed; those
+      failing again is already recorded in source health, not a new outage.
     Fatal/configuration errors return 2 before this helper is consulted;
     a competing lock returns 3 from the CLI.
     """
-    if summary.sources_attempted and summary.sources_failed == summary.sources_attempted:
+    if (
+        summary.sources_attempted
+        and summary.sources_failed == summary.sources_attempted
+        and not summary.detail.get("current_sources")
+    ):
         return 1
     return 0
 
@@ -68,6 +75,8 @@ def run_collect(
         log.warning("registry warning: %s", err)
     targets = due_sources(conn, sources, force=force)
     summary.detail["due_sources"] = len(targets)
+    # Collectable sources that are not due succeeded within their cadence window.
+    summary.detail["current_sources"] = sum(map(collectable, sources)) - len(targets)
 
     own_fetcher = fetcher is None
     fetcher = fetcher or Fetcher(cfg, conn=conn)

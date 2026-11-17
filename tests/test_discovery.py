@@ -112,6 +112,19 @@ def test_absent_or_failed_review_is_not_an_empty_opportunity_judgment(tmp_path):
     assert "No leads match" not in unavailable
 
 
+def test_dashboard_before_first_collection_explains_instead_of_erroring(tmp_path):
+    root = make_workspace(tmp_path)
+    missing = tmp_path / "never-collected" / "export_manifest.json"
+    for view in ({}, {"view": "explore"}):
+        page = render_dashboard(root, "token", view, manifest_path=missing)
+        assert "No leads collected yet" in page
+        assert "Errno" not in page
+        assert "Explore unavailable" not in page
+    explore = render_dashboard(root, "token", {"view": "explore"}, manifest_path=missing)
+    assert "Explore fills in after the first collection" in explore
+    assert "Current queue unavailable" not in explore
+
+
 def test_explore_filters_type_and_shows_newly_discovered_first(tmp_path):
     root = make_workspace(tmp_path)
     manifest_path = make_generation(tmp_path)
