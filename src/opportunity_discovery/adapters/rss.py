@@ -14,7 +14,7 @@ def _to_date(value: str | None) -> str | None:
     try:
         dt = email.utils.parsedate_to_datetime(value)
         return dt.date().isoformat()
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return value[:10] if isinstance(value, str) else None
 
 

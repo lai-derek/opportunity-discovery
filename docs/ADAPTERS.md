@@ -51,6 +51,40 @@ Every adapter must:
 | `program-page` | exact configured overview/application URLs | Up to 8 pages; one explicit record per cycle/session; CSS selectors or JSON-LD paths; coverage canaries |
 | `sitemap` | sitemap.xml with include/exclude regex | Titles inferred from slugs are flagged `inferred-signal`, bounded to 300 URLs |
 
+### Sectioned community tables
+
+`githublist` supports opt-in `format = "sectioned_table"` for Markdown READMEs
+whose sections have different column layouts and HTML or Markdown application
+links. Each table gets its own header mapping. Titles recognize Role, Program,
+Scholarship, Opportunity, and Name; organization also recognizes
+University/Organization. Existing `table`, `html_table`, and bullet parsing is
+unchanged. Use `columns` to override header names; linked names can supply both
+title and canonical URL.
+
+Set `expected_tables`, `min_results`, and `max_results` as coverage canaries.
+Missing headers, malformed rows, or missing application links fail the entire
+response; count mismatches report `coverage-warning`. Neither failure can close
+prior leads. Recognized header-only tables are valid empty unless the configured
+minimum requires records. `allow_unlinked_rows = true` explicitly permits
+skipping named resources without an application link; leave it off for feeds
+whose rows must all be applications.
+
+Row text, including eligibility, notes, community status, and natural-language
+deadlines, is retained in bounded requirements (2,400 characters) and display
+excerpts. Titles are bounded to 240 characters. Only an ISO date in a Deadline
+column populates the structured deadline; other date language remains in the
+excerpt. Repository Date Posted/Date Added is not employer publication, and
+community OPEN labels never set official application state. Resource bullets
+and linked archives are not collected.
+
+The registry enables Underclassmen Opportunities as a daily community source.
+Zapply Underclassmen Internships is a disabled research reference because its
+[Data & Reuse terms](https://github.com/zapplyjobs/underclassmen-internships#data--reuse)
+prohibit resubmitting listings to third-party aggregators or feeds. Do not enable
+it merely because its table shape is supported. Independently verify official
+program pages before adding separate official sources; do not repackage Zapply's
+compilation or automated enrichment.
+
 The [Greenhouse Job Board API](https://github.com/grnhse/greenhouse-api-docs/blob/master/source/includes/job-board/_jobs.md)
 does not document list pagination. Its smaller list omits descriptions and
 offices needed for routing and change detection. The eight measured large

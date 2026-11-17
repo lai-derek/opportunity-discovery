@@ -29,6 +29,11 @@ class ProfileDecision:
         }
 
 
+# Providers whose records are a company's own applicant-tracking board.
+ATS_PROVIDERS = frozenset({"greenhouse", "lever", "ashby", "smartrecruiters", "workday"})
+# A stated minimum at or above this excludes a non-internship role from the student route.
+STUDENT_MAX_REQUIRED_YEARS = 2
+
 _ENGAGEMENT_PATTERNS = (
     (c.ENGAGEMENT_COOP, r"\bco[- ]?op\b|cooperative education"),
     (c.ENGAGEMENT_INTERNSHIP, r"\bintern(?:ship)?\b"),
@@ -90,6 +95,10 @@ _PREFERRED_DEGREE_PATTERNS = (
     ),
 )
 _GRADUATE_TITLE_RE = re.compile(r"\b(?:ph\.?d|doctoral|doctorate|master'?s)\b", re.I)
+# A title naming both degree levels ("Bachelor's/Master's", "BS/MS") is not graduate-only.
+_UNDERGRAD_TITLE_RE = re.compile(r"\bbachelor\S*|\bundergrad\w*|\bb\.?s\.?\s*/\s*m\.?s\b", re.I)
+# "Summer Analyst" is the conventional title of an undergraduate internship.
+_INTERNSHIP_TITLE_RE = re.compile(r"\bintern(?:ship)?\b|\bsummer analyst\b", re.I)
 _RANGE_YEARS_RE = re.compile(r"\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\+?\s+years?\b", re.I)
 _UP_TO_YEARS_RE = re.compile(r"\b(?:up to|maximum(?: of)?|no more than)\s+(\d{1,2})\s+years?\b", re.I)
 _MIN_YEARS_RE = re.compile(
@@ -151,11 +160,19 @@ def normalize_routing_fields(raw: RawOpportunity) -> dict[str, Any]:
         )
         if x
     )
+    # On a company's own applicant-tracking board, the description of an ordinary
+    # job routinely mentions internships, programs, research or contractors. There
+    # the title and the board's structured job type decide the engagement.
+    engagement_text = (
+        " ".join(x for x in (raw.title, raw.employment_type) if x)
+        if (raw.provider or "").lower() in ATS_PROVIDERS
+        else text
+    )
     engagement = _canonical(
         raw.engagement_type,
         {"intern": c.ENGAGEMENT_INTERNSHIP, "coop": c.ENGAGEMENT_COOP, "full time": c.ENGAGEMENT_FULL_TIME},
         _ENGAGEMENT_VALUES,
-    ) or _first_match(text, _ENGAGEMENT_PATTERNS)
+    ) or _first_match(engagement_text, _ENGAGEMENT_PATTERNS)
     legacy = (raw.employment_type or "").strip().lower()
     legacy_map = {
         "intern": c.ENGAGEMENT_INTERNSHIP,
@@ -176,7 +193,7 @@ def normalize_routing_fields(raw: RawOpportunity) -> dict[str, Any]:
         engagement = legacy_map[legacy]
 
     # Hours and provider metadata do not override an explicit student role.
-    if re.search(r"\bintern(?:ship)?\b", raw.title or "", re.I):
+    if _INTERNSHIP_TITLE_RE.search(raw.title or ""):
         engagement = c.ENGAGEMENT_INTERNSHIP
     elif re.search(r"\bco[- ]?op\b", raw.title or "", re.I):
         engagement = c.ENGAGEMENT_COOP
@@ -297,7 +314,9 @@ def normalize_routing_fields(raw: RawOpportunity) -> dict[str, Any]:
         "career_stage": career_stage,
         "required_degree": required_degree,
         "preferred_degree": preferred_degree,
-        "graduate_degree_title_signal": bool(_GRADUATE_TITLE_RE.search(raw.title or "")),
+        "graduate_degree_title_signal": bool(
+            _GRADUATE_TITLE_RE.search(raw.title or "") and not _UNDERGRAD_TITLE_RE.search(raw.title or "")
+        ),
         "experience_requirement_text": exp_text,
         "experience_min_years": exp_min,
         "experience_max_years": exp_max,
@@ -322,6 +341,16 @@ def route_profiles(fields: dict[str, Any]) -> dict[str, ProfileDecision]:
     elif stage == c.CAREER_EXPERIENCED:
         student = ProfileDecision(
             c.ROUTE_EXCLUDED, c.CONFIDENCE_HIGH, ("profile:experienced-stage-excluded",)
+        )
+    elif (
+        exp_min is not None
+        and exp_min >= STUDENT_MAX_REQUIRED_YEARS
+        and engagement not in {c.ENGAGEMENT_INTERNSHIP, c.ENGAGEMENT_COOP}
+    ):
+        # Internships and co-ops sometimes ask for years of hands-on experience
+        # with a tool; other roles stating two or more years are not student roles.
+        student = ProfileDecision(
+            c.ROUTE_EXCLUDED, c.CONFIDENCE_HIGH, ("profile:experience-two-plus-excluded",)
         )
     elif fields.get("graduate_degree_title_signal"):
         student = ProfileDecision(

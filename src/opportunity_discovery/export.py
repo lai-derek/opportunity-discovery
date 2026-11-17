@@ -62,7 +62,7 @@ def _row_to_candidate(
     def _j(key: str, default: Any) -> Any:
         try:
             return json.loads(row[key])
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return default
 
     excerpt = row["description_excerpt"]
@@ -352,7 +352,7 @@ def export_all(
     if last_checkpoint:
         try:
             last_change_id = int(json.loads(last_checkpoint["counts_json"] or "{}")["max_change_id"])
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        except KeyError, TypeError, ValueError, json.JSONDecodeError:
             last_change_id = None
     current_max_change_id = int(
         conn.execute("SELECT COALESCE(MAX(change_id), 0) AS max_id FROM changes").fetchone()["max_id"]

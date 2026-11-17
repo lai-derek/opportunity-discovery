@@ -197,7 +197,7 @@ def _select_jsonld(soup: BeautifulSoup, expected_type: str) -> dict[str, Any] | 
     for script in soup.select('script[type="application/ld+json"]'):
         try:
             document = json.loads(script.string or script.get_text() or "")
-        except (TypeError, json.JSONDecodeError):
+        except TypeError, json.JSONDecodeError:
             continue
         candidates.extend(_jsonld_objects(document))
     for candidate in candidates:

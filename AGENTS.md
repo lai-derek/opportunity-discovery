@@ -11,9 +11,14 @@ private review workflow consumes selected leads and owns all applicant-specific
 work: verification on official pages, eligibility analysis, ranking, the "Do now" /
 "Prepare next" action view, application management, and drafting.
 
-The workspace tools and schemas are code in this repository. Runtime private
-state must remain below the selected workspace root and outside the Git
-checkout; it never belongs in collector SQLite, collector exports, or fixtures.
+It is a Student Workspace tool: the separate `student-workspace` package owns
+workspace setup, shared state helpers, the source registry, backup/restore/audit,
+application handoffs and installation. This repository declares how it joins a
+workspace in `student-workspace-tool.json` and implements its `setup` and `check`
+hooks in `tool_setup.py`. In an installed workspace the collector's database,
+exports and logs live in `.student-workspace/opportunity-discovery/`. Runtime
+private state must remain below the selected workspace root and outside this
+checkout; it never belongs in public exports or fixtures.
 
 ## Hard rules
 
@@ -40,8 +45,9 @@ checkout; it never belongs in collector SQLite, collector exports, or fixtures.
    persist across runs.
 6. **Automatic scheduled runs must not rewrite source rules, code, weights,
    or configuration.** The Task Scheduler task only runs `scripts/run.ps1`
-   (i.e., `opdisc run`). Registry edits are human/agent actions, reviewed,
-   never automated.
+   for one workspace (i.e., `opdisc --workspace WORKSPACE run`), and setup
+   registers it only when the user leaves that option selected. Registry edits
+   are human/agent actions, reviewed, never automated.
 7. **No application submission or authenticated-source automation is allowed.**
    No logins, no CAPTCHA bypassing, no rate-limit abuse, no scraping of paid
    or account-gated boards, no submissions/messages/uploads anywhere.
@@ -96,6 +102,8 @@ reviewable diffs. They do not silently self-modify production behavior.
 - `config/sources.toml` — the public source registry (human-editable).
 - `schemas/` — JSON Schemas for every external artifact.
 - `tests/fixtures/` — synthetic fixtures for every adapter and failure mode.
-- `scripts/` — Windows PowerShell wrappers + Task Scheduler registration and
-  the bash development helper.
+- `scripts/` — the scheduled-run wrapper, Task Scheduler registration, the
+  synthetic demo workspace, and the bash development helper.
+- `docs/workspace-section.md` — this tool's block in a workspace's generated
+  `WORKSPACE.md`.
 - `docs/` — architecture, data model, adapters, policies, operations.

@@ -42,12 +42,17 @@ workflow.
 | `scoring.py` | Deterministic keyword families, signals, effort estimate, season inference |
 | `export.py` | Atomic versioned artifacts incl. paginated delta packets |
 | `review_contract.py` | Provider-neutral review-response validation and atomic boundary import |
-| `workspace.py` | External private-workspace initialization; user-owned starters are preserved |
-| `workspace_state.py` | Validated private review/feedback application below an external workspace root |
-| `workspace_discovery.py` | Read-only curated Home and manifest-verified Explore |
-| `workspace_screening.py` | External private profile, whole-collection screening, optional semantic imports, category balance, and research freshness |
-| `workspace_constraints.py` | Compare source requirements with documented private facts and prepare compact review inputs |
-| `workspace_recovery.py` | Private knowledge snapshots, ZIP backup/restore, and workspace audit |
+| `review.py` | Validated private review/feedback application to the board |
+| `board.py`, `actions.py` | Private board pages and user actions (done, delete, wait, pipeline) |
+| `discovery.py` | Read-only curated Home and manifest-verified Explore |
+| `screening.py` | Private profile, whole-collection screening, optional semantic imports, category balance, and research freshness |
+| `constraints.py` | Compare source requirements with documented private facts and prepare compact review inputs |
+| `dashboard.py` | Localhost dashboard (Home, Explore, board actions, application requests) |
+| `handoff.py` | Application handoffs for board records through student-workspace |
+| `tool_setup.py` | Student Workspace setup and check hooks, dashboard launcher, daily task |
+
+Workspace initialization, state helpers, recovery, backups, the source registry
+and application handoff files belong to the separate `student-workspace` package.
 | `runner.py` | The normal workflow behind `opdisc run` |
 | `validate_sources.py` | Live probes that record validation status |
 | `audit.py` | Repository publication-safety audit |

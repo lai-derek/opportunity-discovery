@@ -9,38 +9,32 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from student_workspace.applications import ARTIFACT_TYPES
+from student_workspace.state import WorkspaceStateError
+
 from . import __version__
 from . import audit as audit_mod
 from . import db as dbm
-from .config import load_config
-from .export import build_source_health, export_all
-from .lock import RunLock
-from .models import SourceSpec
-from .prune import apply_prune, plan_prune
-from .registry import load_sources, sync_sources_to_db
-from .review_contract import ReviewContractError, import_review_response
-from .runner import ensure_ready, run_full_workflow
-from .validate_sources import validate_all
-from .workspace import WorkspaceInitError, initialize_workspace
-from .workspace_actions import (
+from .actions import (
     change_workspace_opportunity,
     list_workspace_history,
     mark_workspace_opportunity,
 )
-from .workspace_application import ARTIFACT_TYPES, create_application_request
-from .workspace_board import BOARD_VIEWS, PIPELINE_STATES, list_workspace_board
-from .workspace_constraints import compact_review_batch
-from .workspace_dashboard import serve_workspace_dashboard
-from .workspace_discovery import default_manifest_path
-from .workspace_recovery import (
-    audit_workspace,
-    backup_workspace,
-    compare_knowledge_snapshot,
-    list_knowledge_snapshots,
-    restore_knowledge_snapshot,
-    restore_workspace_backup,
-)
-from .workspace_screening import (
+from .board import BOARD_VIEWS, PIPELINE_STATES, list_workspace_board
+from .config import load_config, load_workspace_config
+from .constraints import compact_review_batch
+from .dashboard import serve_dashboard
+from .discovery import default_manifest_path
+from .export import build_source_health, export_all
+from .handoff import request_for_opportunity
+from .lock import RunLock
+from .models import SourceSpec
+from .prune import apply_prune, plan_prune
+from .registry import load_sources, sync_sources_to_db
+from .review import apply_workspace_feedback, apply_workspace_review
+from .review_contract import ReviewContractError, import_review_response
+from .runner import ensure_ready, run_full_workflow
+from .screening import (
     LANES,
     REVIEW_ACTIONS,
     STATES,
@@ -49,23 +43,20 @@ from .workspace_screening import (
     screen_collection,
     set_screening_profile,
 )
-from .workspace_state import (
-    WorkspaceStateError,
-    apply_workspace_feedback,
-    apply_workspace_review,
-)
+from .tool_setup import check_workspace, setup_workspace
+from .validate_sources import validate_all
 
 
 def cmd_workspace_screening(args: argparse.Namespace) -> int:
     try:
         root = Path(args.workspace)
-        if args.command == "workspace-profile":
+        if args.command == "profile":
             result = set_screening_profile(root, json.loads(Path(args.profile).read_text(encoding="utf-8")))
         else:
             manifest = Path(args.manifest) if args.manifest else default_manifest_path(root)
-            if args.command == "workspace-screen":
+            if args.command == "screen":
                 result = screen_collection(root, manifest)
-            elif args.command == "workspace-apply-screening":
+            elif args.command == "apply-screening":
                 result = apply_screening_response(
                     root, json.loads(Path(args.response).read_text(encoding="utf-8")), manifest
                 )
@@ -100,14 +91,16 @@ def _setup_logging(quiet: bool) -> None:
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
 
-def _load(cfg_path: str | None):  # type: ignore[no-untyped-def]
-    cfg, errors = load_config(Path(cfg_path) if cfg_path else None)
-    return cfg, errors
+def _load(args: argparse.Namespace):  # type: ignore[no-untyped-def]
+    config_path = Path(args.config) if args.config else None
+    if args.collector_workspace:
+        return load_workspace_config(Path(args.collector_workspace), config_path)
+    return load_config(config_path)
 
 
 # --------------------------------------------------------------------------- commands
 def cmd_init(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         print("config errors:", file=sys.stderr)
         for e in errors:
@@ -132,7 +125,7 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_validate_config(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     sources: list[SourceSpec] = []
     src_errors: list[str] = []
     if cfg:
@@ -157,40 +150,9 @@ def cmd_validate_config(args: argparse.Namespace) -> int:
     return 0 if not all_errors else 2
 
 
-def cmd_init_workspace(args: argparse.Namespace) -> int:
-    try:
-        result = initialize_workspace(
-            Path(args.workspace),
-            engine_path=Path(args.engine_path) if args.engine_path else None,
-        )
-    except (OSError, WorkspaceInitError) as exc:
-        print(f"ERROR workspace not initialized: {exc}", file=sys.stderr)
-        return 2
-    payload = result.to_dict()
-    if args.json_output:
-        print(json.dumps(payload, indent=2))
-    elif not args.quiet:
-        print(f"workspace ready at {result.root}")
-        print(
-            f"created {len(result.created_files)} starter files; "
-            f"updated {len(result.updated_files)} machine files; "
-            f"preserved {len(result.preserved_files)}"
-        )
-        for warning in result.warnings:
-            print(f"WARNING {warning}", file=sys.stderr)
-    return 0
-
-
 def cmd_workspace_apply_review(args: argparse.Namespace) -> int:
-    manifest = Path(args.manifest) if args.manifest else None
-    if manifest is None:
-        cfg, errors = _load(args.config)
-        if errors:
-            for error in errors:
-                print(f"ERROR {error}", file=sys.stderr)
-            return 2
-        manifest = cfg.paths.output_dir / "export_manifest.json"
     try:
+        manifest = Path(args.manifest) if args.manifest else default_manifest_path(Path(args.workspace))
         result = apply_workspace_review(
             Path(args.workspace),
             Path(args.response),
@@ -306,9 +268,9 @@ def cmd_workspace_history(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_workspace_dashboard(args: argparse.Namespace) -> int:
+def cmd_dashboard(args: argparse.Namespace) -> int:
     try:
-        serve_workspace_dashboard(
+        serve_dashboard(
             Path(args.workspace),
             port=args.port,
             manifest_path=Path(args.manifest) if args.manifest else None,
@@ -319,9 +281,9 @@ def cmd_workspace_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_workspace_request(args: argparse.Namespace) -> int:
+def cmd_request(args: argparse.Namespace) -> int:
     try:
-        result = create_application_request(
+        result = request_for_opportunity(
             Path(args.workspace),
             args.opportunity_id,
             args.artifact_type,
@@ -339,102 +301,38 @@ def cmd_workspace_request(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_knowledge_snapshots(args: argparse.Namespace) -> int:
+def cmd_setup(args: argparse.Namespace) -> int:
     try:
-        snapshots = list_knowledge_snapshots(Path(args.workspace))
+        result = setup_workspace(Path(args.workspace), schedule=args.schedule)
     except (OSError, WorkspaceStateError) as exc:
-        print(f"ERROR knowledge snapshots unavailable: {exc}", file=sys.stderr)
-        return 2
-    payload = {"schema_version": "1.0", "snapshots": [item.to_dict() for item in snapshots]}
-    if args.json_output:
-        print(json.dumps(payload, indent=2))
-    elif not args.quiet:
-        for snapshot in snapshots:
-            print(f"{snapshot.snapshot_id}  {snapshot.created_at}  {len(snapshot.files)} files")
-    return 0
-
-
-def cmd_compare_knowledge(args: argparse.Namespace) -> int:
-    try:
-        result = compare_knowledge_snapshot(Path(args.workspace), args.snapshot_id)
-    except (OSError, WorkspaceStateError) as exc:
-        print(f"ERROR knowledge snapshot not compared: {exc}", file=sys.stderr)
-        return 2
+        print(f"ERROR setup failed: {exc}", file=sys.stderr)
+        return 1
     if args.json_output:
         print(json.dumps(result, indent=2))
     elif not args.quiet:
-        print(f"snapshot {args.snapshot_id}: {len(result['changes'])} changed paths")
-        for change in result["changes"]:
-            print(f"  {change['change']}: {change['path']}")
+        print(f"collector storage: {result['collector_state']}")
+        print(f"Open Dashboard.cmd: {result['dashboard_launcher']}")
+        if result["scheduled_task"]:
+            print(f"scheduled task: {result['scheduled_task']}")
     return 0
 
 
-def cmd_restore_knowledge(args: argparse.Namespace) -> int:
+def cmd_check(args: argparse.Namespace) -> int:
     try:
-        result = restore_knowledge_snapshot(Path(args.workspace), args.snapshot_id)
+        code, messages = check_workspace(Path(args.workspace))
     except (OSError, WorkspaceStateError) as exc:
-        print(f"ERROR knowledge snapshot not restored: {exc}", file=sys.stderr)
-        return 2
+        print(f"ERROR {exc}", file=sys.stderr)
+        return 1
     if args.json_output:
-        print(json.dumps(result, indent=2))
+        print(json.dumps({"exit_code": code, "messages": messages}, indent=2))
     elif not args.quiet:
-        print(f"restored {len(result['restored_files'])} files from {args.snapshot_id}")
-        print(f"pre-restore snapshot: {result['pre_restore_snapshot_id']}")
-    return 0
-
-
-def cmd_backup_workspace(args: argparse.Namespace) -> int:
-    try:
-        result = backup_workspace(Path(args.workspace), Path(args.output), kind=args.kind)
-    except (OSError, WorkspaceStateError) as exc:
-        print(f"ERROR workspace not backed up: {exc}", file=sys.stderr)
-        return 2
-    if args.json_output:
-        print(json.dumps(result.to_dict(), indent=2))
-    elif not args.quiet:
-        print(f"created {result.kind} backup with {result.file_count} files -> {result.path}")
-        print(f"WARNING {result.warning}", file=sys.stderr)
-    return 0
-
-
-def cmd_restore_workspace(args: argparse.Namespace) -> int:
-    try:
-        result = restore_workspace_backup(
-            Path(args.workspace),
-            Path(args.archive),
-            pre_restore_path=Path(args.pre_restore_output) if args.pre_restore_output else None,
-        )
-    except (OSError, WorkspaceStateError) as exc:
-        print(f"ERROR workspace backup not restored: {exc}", file=sys.stderr)
-        return 2
-    if args.json_output:
-        print(json.dumps(result.to_dict(), indent=2))
-    elif not args.quiet:
-        print(f"restored {result.restored_files} files from {result.archive}")
-        print(f"pre-restore backup: {result.pre_restore_backup}")
-    return 0
-
-
-def cmd_audit_workspace(args: argparse.Namespace) -> int:
-    try:
-        report = audit_workspace(Path(args.workspace))
-    except (OSError, WorkspaceStateError) as exc:
-        print(f"ERROR workspace not audited: {exc}", file=sys.stderr)
-        return 2
-    if args.json_output:
-        print(json.dumps(report.to_dict(), indent=2))
-    elif not args.quiet:
-        print(
-            f"workspace audit: {len(report.errors)} errors, "
-            f"{len(report.findings) - len(report.errors)} warnings"
-        )
-        for finding in report.findings:
-            print(f"  [{finding.severity}] {finding.rule}: {finding.path} {finding.detail}")
-    return 1 if report.errors else 0
+        for message in messages:
+            print(message)
+    return code
 
 
 def cmd_validate_sources(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         for e in errors:
             print(f"ERROR {e}", file=sys.stderr)
@@ -463,7 +361,7 @@ def cmd_validate_sources(args: argparse.Namespace) -> int:
 
 
 def cmd_collect(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         for e in errors:
             print(f"ERROR {e}", file=sys.stderr)
@@ -490,7 +388,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         for e in errors:
             print(f"ERROR {e}", file=sys.stderr)
@@ -512,7 +410,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         for e in errors:
             print(f"ERROR {e}", file=sys.stderr)
@@ -532,7 +430,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_source_health(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors and not args.quiet:
         for e in errors:
             print(f"WARN config: {e}", file=sys.stderr)
@@ -549,7 +447,7 @@ def cmd_source_health(args: argparse.Namespace) -> int:
 
 
 def cmd_import_review(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         for error in errors:
             print(f"ERROR {error}", file=sys.stderr)
@@ -572,7 +470,7 @@ def cmd_import_review(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
-    cfg, _errors = _load(args.config)
+    cfg, _errors = _load(args)
     conn = ensure_ready(cfg)
     last_run = conn.execute("SELECT * FROM collection_runs ORDER BY started_at DESC LIMIT 1").fetchone()
     opp_counts = {
@@ -628,7 +526,7 @@ def cmd_audit(args: argparse.Namespace) -> int:
 
 def cmd_add_source(args: argparse.Namespace) -> int:
     """Append a source to the registry file (documented equivalent to hand-editing)."""
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         for e in errors:
             print(f"ERROR {e}", file=sys.stderr)
@@ -679,7 +577,7 @@ def cmd_add_source(args: argparse.Namespace) -> int:
 
 
 def cmd_prune(args: argparse.Namespace) -> int:
-    cfg, errors = _load(args.config)
+    cfg, errors = _load(args)
     if errors:
         for e in errors:
             print(f"ERROR {e}", file=sys.stderr)
@@ -723,6 +621,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--json", dest="json_output", action="store_true", help="machine-readable JSON output"
     )
     parser.add_argument("--config", help="path to engine TOML config")
+    parser.add_argument(
+        "--workspace",
+        dest="collector_workspace",
+        help="keep collector data, exports and logs in this student workspace",
+    )
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -732,23 +635,25 @@ def build_parser() -> argparse.ArgumentParser:
         return p
 
     add("init", cmd_init, "initialize/migrate local storage and sync the registry")
-    p = add("init-workspace", cmd_init_workspace, "initialize an external private workspace")
+    p = add("setup", cmd_setup, "prepare a student workspace for this tool (run by student-workspace)")
     p.add_argument("workspace", help="private workspace root")
-    p.add_argument("--engine-path", help="path to the public engine checkout")
-    p = add("workspace-profile", cmd_workspace_screening, "import an AI-normalized private screening profile")
+    p.add_argument("--schedule", action="store_true", help="register the daily collection task (Windows)")
+    p = add("check", cmd_check, "check collection freshness and board state (0 current, 2 stale, 1 error)")
+    p.add_argument("workspace", help="private workspace root")
+    p = add("profile", cmd_workspace_screening, "import an AI-normalized private screening profile")
     p.add_argument("workspace")
-    p.add_argument("profile", help="private JSON matching workspace-screening-profile.schema.json")
+    p.add_argument("profile", help="private JSON matching opportunity-screening-profile.schema.json")
     for name, help_text in (
-        ("workspace-screen", "screen the entire collection without AI calls"),
-        ("workspace-screening", "read a bounded personal screening/research batch"),
-        ("workspace-apply-screening", "import a semantic screening pass, separate from research"),
+        ("screen", "screen the entire collection without AI calls"),
+        ("screening", "read a bounded personal screening/research batch"),
+        ("apply-screening", "import a semantic screening pass, separate from research"),
     ):
         p = add(name, cmd_workspace_screening, help_text)
         p.add_argument("workspace")
         p.add_argument("--manifest")
-        if name == "workspace-apply-screening":
+        if name == "apply-screening":
             p.add_argument("response")
-        if name == "workspace-screening":
+        if name == "screening":
             p.add_argument(
                 "--compact", action="store_true", help="share the profile once in a focused AI evidence batch"
             )
@@ -773,22 +678,18 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--uncapped", action="store_true")
             p.add_argument("--offset", type=int, default=0)
             p.add_argument("--limit", type=int, default=25)
-    p = add(
-        "workspace-apply-review",
-        cmd_workspace_apply_review,
-        "apply validated agent review to an external private workspace",
-    )
+    p = add("apply-review", cmd_workspace_apply_review, "apply validated agent review to the private board")
     p.add_argument("workspace", help="private workspace root")
-    p.add_argument("response", help="workspace-review JSON")
-    p.add_argument("--manifest", help="export_manifest.json (defaults to configured output)")
+    p.add_argument("response", help="opportunity-review JSON")
+    p.add_argument("--manifest", help="export_manifest.json (default: the workspace's collector output)")
     p = add(
-        "workspace-apply-feedback",
+        "apply-feedback",
         cmd_workspace_apply_feedback,
-        "apply explicit reasoned Done/Delete feedback to private workspace state",
+        "apply explicit reasoned Done/Delete feedback to private board state",
     )
     p.add_argument("workspace", help="private workspace root")
-    p.add_argument("feedback", help="workspace-feedback JSON")
-    p = add("workspace-board", cmd_workspace_board, "read a filtered private board page")
+    p.add_argument("feedback", help="opportunity-feedback JSON")
+    p = add("board", cmd_workspace_board, "read a filtered private board page")
     p.add_argument("workspace", help="private workspace root")
     p.add_argument("--view", choices=BOARD_VIEWS, default="active")
     p.add_argument("--board-state")
@@ -799,7 +700,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--limit", type=int, default=50)
     for action in ("done", "delete", "restore", "purge", "resume"):
-        p = add(f"workspace-{action}", cmd_workspace_action, f"{action} a private board record")
+        p = add(action, cmd_workspace_action, f"{action} a private board record")
         p.set_defaults(board_action=action)
         p.add_argument("workspace", help="private workspace root")
         p.add_argument("opportunity_id", help="stable opportunity ID")
@@ -808,29 +709,27 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--reason-text")
             p.add_argument("--prefer", action="append", default=[], metavar="SIGNAL")
             p.add_argument("--avoid", action="append", default=[], metavar="SIGNAL")
-    p = add("workspace-pipeline", cmd_workspace_action, "set a private application pipeline state")
+    p = add("pipeline", cmd_workspace_action, "set a private application pipeline state")
     p.set_defaults(board_action="pipeline")
     p.add_argument("workspace", help="private workspace root")
     p.add_argument("opportunity_id", help="stable opportunity ID")
     p.add_argument("pipeline_state", choices=sorted(PIPELINE_STATES))
-    p = add("workspace-wait", cmd_workspace_action, "mark a private board record as waiting")
+    p = add("wait", cmd_workspace_action, "mark a private board record as waiting")
     p.set_defaults(board_action="wait")
     p.add_argument("workspace", help="private workspace root")
     p.add_argument("opportunity_id", help="stable opportunity ID")
     p.add_argument("--reason", required=True)
     p.add_argument("--until", help="optional ISO date")
-    p = add("workspace-history", cmd_workspace_history, "read private board and operation history")
+    p = add("history", cmd_workspace_history, "read private board and operation history")
     p.add_argument("workspace", help="private workspace root")
     p.add_argument("--opportunity-id")
     p.add_argument("--offset", type=int, default=0)
     p.add_argument("--limit", type=int, default=50)
-    p = add("workspace-dashboard", cmd_workspace_dashboard, "open curated Home and full-queue Explore")
+    p = add("dashboard", cmd_dashboard, "open curated Home and full-queue Explore")
     p.add_argument("workspace", help="private workspace root")
     p.add_argument("--port", type=int, default=8765, help="localhost port (default: 8765)")
-    p.add_argument(
-        "--manifest", help="current public export manifest (default: engine/output/export_manifest.json)"
-    )
-    p = add("workspace-request", cmd_workspace_request, "create a manual application handoff")
+    p.add_argument("--manifest", help="public export manifest (default: the workspace's collector output)")
+    p = add("request", cmd_request, "create a manual application handoff for a board opportunity")
     p.add_argument("workspace", help="private workspace root")
     p.add_argument("opportunity_id", help="stable opportunity ID")
     p.add_argument("artifact_type", choices=ARTIFACT_TYPES)
@@ -838,24 +737,6 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--reference", action="append", default=[], metavar="PATH", help="sources/ or knowledge/ path"
     )
-    p = add("knowledge-snapshots", cmd_knowledge_snapshots, "list private knowledge snapshots")
-    p.add_argument("workspace", help="private workspace root")
-    p = add("compare-knowledge", cmd_compare_knowledge, "compare current knowledge with a snapshot")
-    p.add_argument("workspace", help="private workspace root")
-    p.add_argument("snapshot_id")
-    p = add("restore-knowledge", cmd_restore_knowledge, "restore a private knowledge snapshot")
-    p.add_argument("workspace", help="private workspace root")
-    p.add_argument("snapshot_id")
-    p = add("backup-workspace", cmd_backup_workspace, "create an unencrypted private workspace ZIP")
-    p.add_argument("workspace", help="private workspace root")
-    p.add_argument("output", help="backup ZIP destination")
-    p.add_argument("--kind", choices=("full", "state"), default="full")
-    p = add("restore-workspace", cmd_restore_workspace, "restore a verified private workspace ZIP")
-    p.add_argument("workspace", help="private workspace root")
-    p.add_argument("archive", help="backup ZIP to restore")
-    p.add_argument("--pre-restore-output", help="path for the automatic full pre-restore backup")
-    p = add("workspace-audit", cmd_audit_workspace, "audit private workspace exposure and references")
-    p.add_argument("workspace", help="private workspace root")
     add("validate-config", cmd_validate_config, "validate configuration and registry files")
     p = add("validate-sources", cmd_validate_sources, "live-probe enabled sources and record health")
     p.add_argument("--source-id", help="validate a single source")

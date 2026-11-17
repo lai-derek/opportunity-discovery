@@ -1,9 +1,11 @@
 import gzip
 import json
 import threading
+import zlib
 
 import httpx
 
+from opportunity_discovery.db import migrate
 from opportunity_discovery.http_client import Fetcher
 from tests.helpers import make_db
 
@@ -302,6 +304,29 @@ def test_explicit_response_budget_does_not_change_default(engine_config):
         conn.close()
 
 
+def test_uncompressed_cache_rows_from_before_encoding_are_still_served(engine_config):
+    def handler(request):
+        raise httpx.ConnectError("network down")
+
+    fetcher, conn = make_fetcher(engine_config, handler)
+    try:
+        conn.execute(
+            "INSERT INTO raw_cache (url, fetched_at, status, content, expires_at)"
+            " VALUES (?, '2026-01-01T00:00:00+00:00', 200, ?, '2099-01-01T00:00:00+00:00')",
+            ("https://legacy.example.com/data", b"legacy-body"),
+        )
+        conn.commit()
+        out = fetcher.fetch("https://legacy.example.com/data")
+        assert out.from_cache
+        assert out.text == "legacy-body"
+        migrate(conn)  # the one-time upgrade compresses rows stored as received
+        assert conn.execute("SELECT content_encoding FROM raw_cache").fetchone()[0] == "zlib"
+        assert fetcher.fetch("https://legacy.example.com/data").text == "legacy-body"
+    finally:
+        fetcher.close()
+        conn.close()
+
+
 def test_gzip_response_is_decoded_once_and_cached(engine_config):
     body = '{"title": "Café"}'.encode()
     compressed = gzip.compress(body)
@@ -324,7 +349,9 @@ def test_gzip_response_is_decoded_once_and_cached(engine_config):
         assert out.body == body
         assert json.loads(out.text)["title"] == "Café"
         assert out.etag == '"gzip-v1"'
-        assert conn.execute("SELECT content FROM raw_cache").fetchone()[0] == body
+        stored, encoding = conn.execute("SELECT content, content_encoding FROM raw_cache").fetchone()
+        assert encoding == "zlib"
+        assert zlib.decompress(stored) == body
     finally:
         fetcher.close()
         conn.close()
@@ -349,7 +376,7 @@ def test_gzip_decoded_body_limit_preserves_prior_cache(engine_config):
         assert second.from_cache and second.state == "degraded"
         assert "max_response_bytes=50" in (second.error or "")
         assert second.body == current_body
-        assert conn.execute("SELECT content FROM raw_cache").fetchone()[0] == current_body
+        assert zlib.decompress(conn.execute("SELECT content FROM raw_cache").fetchone()[0]) == current_body
     finally:
         fetcher.close()
         conn.close()

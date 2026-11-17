@@ -85,9 +85,20 @@ never determines whether a particular applicant is eligible.
 
 - `student-early-career` includes internships, co-ops, student research,
   fellowships, programs, events, and early-career contracts. It excludes full-time
-  and new-graduate roles, experienced roles, and postings that explicitly require
-  a master's or doctorate. A posting open to multiple degree levels is not treated
-  as graduate-degree-required.
+  and new-graduate roles, experienced roles, postings that explicitly require
+  a master's or doctorate, and roles other than internships and co-ops that state
+  a minimum of two or more years of experience. A posting open to multiple degree
+  levels is not treated as graduate-degree-required.
+
+On a company's own applicant-tracking board (Greenhouse, Lever, Ashby,
+SmartRecruiters, Workday) the job type comes from the title and the board's
+structured job-type field, not from the description, because ordinary job
+descriptions often mention internships, programs, research or contractors.
+Aggregators and program pages still use the full text. In a sectioned community
+list (`githublist` with `format = "sectioned_table"`), rows of a table whose
+title column is "Program" or "Scholarship" carry job type `program`. A title
+naming both degree levels ("Bachelor's/Master's", "BS/MS") is not treated as
+graduate-only, and a "Summer Analyst" title is an internship.
 - `new-grad` includes entry-level/new-graduate full-time roles whose stated
   experience ceiling is at most four years. It excludes internships, co-ops,
   student programs/events, experienced roles, and requirements of five years or
@@ -99,7 +110,10 @@ instead of being silently excluded. `eligibility_confidence` is confidence in th
 public-text routing classification—not applicant eligibility.
 
 ### `observations`
-Immutable per-run snapshots of each raw record (run, source, opportunity, record JSON).
+Immutable per-run snapshots of each normalized record (run, source, opportunity,
+time, payload hash). Each distinct record JSON is stored once in
+`observation_payloads`; query the `observation_records` view for the full JSON of
+any observation. Rows written before migration 0010 are moved there once.
 
 ### `provenance`
 Source-to-opportunity links with evidence level (`source-stated` /
@@ -126,7 +140,9 @@ emits reciprocal `possible_duplicate_ids` for external review.
 
 ### `changes`
 Field-level change log: opportunity, run, change type, changed-fields JSON
-(old/new pairs), detected time.
+(old/new pairs), detected time. Text values longer than 160 characters are
+recorded as `{"sha256", "chars", "preview"}`; the full texts are in the
+observation payloads of the runs on either side of the change.
 
 ### `export_checkpoints`
 Per-artifact export history (timestamp, run, packet hash, counts) used to compute
@@ -134,7 +150,14 @@ the next delta packet.
 
 ### `raw_cache`
 Raw successful responses with ETag/Last-Modified and expiry for conditional
-requests and degraded-mode fallback. Pruned by `opdisc prune`.
+requests and degraded-mode fallback. Bodies are zlib-compressed
+(`content_encoding = 'zlib'`; NULL marks rows stored as received before
+migration 0009). Pruned by `opdisc prune`.
+
+### `extraction_cache`
+Derived description-extraction results keyed by input text and engine code
+fingerprint (see `facts_cache.py`). Entries from other engine code or unused for
+30 days are dropped at the start of collection.
 
 ## Stable identity ladder
 

@@ -9,10 +9,12 @@ from __future__ import annotations
 import html
 import re
 from datetime import date, datetime
+from functools import lru_cache
 from typing import Any, TypedDict, cast
 
 from bs4 import BeautifulSoup
 
+from . import facts_cache
 from .source_constraints import clause_modality, parse_constraints, qualification_heading, source_statements
 
 _FACT_PATTERNS = {
@@ -101,8 +103,13 @@ class DescriptionFacts(TypedDict):
     preferred_degree: str | None
 
 
+@lru_cache(maxsize=64)
 def decoded_text(text: str | None) -> str:
-    """Decode nested entity escapes, remove executable markup, preserve blocks."""
+    """Decode nested entity escapes, remove executable markup, preserve blocks.
+
+    Pure function of its input. Adapters decode the same posting several times
+    (facts, location, excerpt, routing), so a small cache avoids re-parsing HTML.
+    """
     value = text or ""
     for _ in range(3):
         decoded = html.unescape(value)
@@ -169,7 +176,24 @@ def _bounded_statements(statements: list[str], limit: int = 600) -> str | None:
 
 
 def extract_description(content: str | None, *, qualification_sections: str = "") -> DescriptionFacts:
-    """Inspect all available text, prefer separate qualification sections."""
+    """Inspect all available text, prefer separate qualification sections.
+
+    During collection a persistent cache (facts_cache) returns the stored result
+    for text already extracted by the same engine code.
+    """
+    cache = facts_cache.active()
+    if cache is None:
+        return _extract_description(content, qualification_sections=qualification_sections)
+    key = cache.key(content or "", qualification_sections or "")
+    cached = cache.get(key)
+    if cached is not None:
+        return cast(DescriptionFacts, cached)
+    facts = _extract_description(content, qualification_sections=qualification_sections)
+    cache.put(key, dict(facts))
+    return facts
+
+
+def _extract_description(content: str | None, *, qualification_sections: str = "") -> DescriptionFacts:
     full = decoded_text(content)
     qualifications = decoded_text(qualification_sections)
     statements = _statements(qualifications) + _statements(full)

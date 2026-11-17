@@ -83,12 +83,11 @@ dismissals, or application materials.
 | `output/run_summary.json` | `schemas/run-summary.schema.json` |
 | `output/source_health.json` | `schemas/source-health.schema.json` |
 | review response input / `output/review_response.json` | `schemas/review-response.schema.json` |
-| private workspace `.opdisc/source-manifest.json` | `schemas/workspace-source-manifest.schema.json` |
-| private workspace review input | `schemas/workspace-review.schema.json` |
-| reasoned private feedback input | `schemas/workspace-feedback.schema.json` |
-| private workspace `.opdisc/screening-profile.json` | `schemas/workspace-screening-profile.schema.json` |
-| private workspace `.opdisc/screening.json` | `schemas/workspace-screening-state.schema.json` |
-| optional private semantic screening input | `schemas/workspace-screening-response.schema.json` |
+| private workspace review input | `schemas/opportunity-review.schema.json` |
+| reasoned private feedback input | `schemas/opportunity-feedback.schema.json` |
+| private workspace `.student-workspace/screening-profile.json` | `schemas/opportunity-screening-profile.schema.json` |
+| private workspace `.student-workspace/screening.json` | `schemas/opportunity-screening-state.schema.json` |
+| optional private semantic screening input | `schemas/opportunity-screening-response.schema.json` |
 
 ## Delta packet semantics
 
@@ -187,8 +186,8 @@ or timestamp.
 
 ## Private workspace application
 
-`opdisc workspace-apply-review WORKSPACE RESPONSE --manifest MANIFEST` is a
-separate external-workspace operation. Its response includes the public review
+`opdisc apply-review WORKSPACE RESPONSE [--manifest MANIFEST]` is a
+separate private-workspace operation. Its response includes the public review
 fields plus an official-source classification, a private eligibility
 conclusion, source-backed knowledge updates, and protected-change proposals.
 The command validates the common fields through the same Phase 2 production
