@@ -1,9 +1,11 @@
 # Validation
 
-Version 0.2.0, checked 2026-11-16 on native Windows 11 with Python 3.15.2.
+Version 0.2.1, checked 2026-11-16 on native Windows 11 with Python 3.15.2.
+0.2.1 corrects the version that `opdisc --version` and the collector's User-Agent
+report (0.2.0 still said 0.1.0); nothing else changed.
 Earlier validation history is in the Git history of this file.
 
-## What changed in 0.2.0
+## What changed in 0.2
 
 - **Student Workspace.** Workspace setup, backup and application handoffs moved
   to [Student Workspace](https://github.com/lai-derek/student-workspace), which
