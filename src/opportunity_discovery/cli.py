@@ -89,6 +89,9 @@ def cmd_workspace_screening(args: argparse.Namespace) -> int:
 def _setup_logging(quiet: bool) -> None:
     level = logging.WARNING if quiet else logging.INFO
     logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
+    # One INFO line per HTTP request buries the run summary; failures still surface as warnings.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def _load(args: argparse.Namespace):  # type: ignore[no-untyped-def]
@@ -601,9 +604,11 @@ def cmd_prune(args: argparse.Namespace) -> int:
 
 
 def _summary_line(summary) -> str:  # type: ignore[no-untyped-def]
+    current = summary.detail.get("current_sources") or 0
     return (
         f"{summary.run_id}: source checks: {summary.sources_succeeded} succeeded,"
-        f" {summary.sources_failed} failed, {summary.sources_attempted} attempted;"
+        f" {summary.sources_failed} failed, {summary.sources_attempted} attempted"
+        f"{f' ({current} others still current, not due yet)' if current else ''};"
         f" source records: {summary.records_seen}; unverified leads:"
         f" {summary.opportunities_new} new, {summary.opportunities_changed} changed,"
         f" {summary.opportunities_closed} closed, {summary.review_queue_count} in review queue"

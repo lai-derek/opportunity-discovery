@@ -27,9 +27,15 @@ From the workspace folder in PowerShell:
 .\tools\.venv\Scripts\opdisc.exe --workspace . run
 ```
 
+The first run checks every source and takes about 10 minutes; later runs reuse
+cached responses and are faster. It ends with a one-line summary of sources
+checked and leads found. A source that succeeded recently isn't checked again
+until it's due, so running collection twice in a row mostly retries sources
+that failed last time.
+
 ## Daily collection
 
-Setup offers a daily 7:30 a.m. Task Scheduler task (on by default). It runs only
+Setup offers a daily 7:30 a.m. Task Scheduler task (off unless you check it). It runs only
 `scripts\run.ps1` for that workspace: collection, not AI review, and it never
 changes code, source rules or configuration. To add it later or remove it:
 

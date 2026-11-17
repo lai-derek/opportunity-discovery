@@ -77,7 +77,8 @@ and application handoff files belong to the separate `student-workspace` package
 9. Run summary persisted; `run`/`collect` apply the shared tolerant exit
    contract (`runner.workflow_exit_code`): 0 when nothing failed, nothing was
    due, or at least one source succeeded; 1 only when all attempted sources
-   failed; 2 for fatal/config errors; 3 when another run holds the lock.
+   failed and no other source is still current (not due because it recently
+   succeeded); 2 for fatal/config errors; 3 when another run holds the lock.
 
 ## Failure isolation
 

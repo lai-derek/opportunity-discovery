@@ -140,6 +140,15 @@ def sync_sources_to_db(conn, sources: list[SourceSpec]) -> int:  # type: ignore[
     return count
 
 
+def collectable(source: SourceSpec) -> bool:
+    """Enabled, validated and not quarantined: the sources a run may fetch."""
+    return (
+        source.enabled
+        and not source.quarantine_reason
+        and source.validation_status in ("validated", "validated-empty-ok")
+    )
+
+
 def due_sources(conn, sources: list[SourceSpec], *, force: bool = False) -> list[SourceSpec]:  # type: ignore[no-untyped-def]
     """Return enabled, validated sources whose cadence window has elapsed."""
     from datetime import datetime, timedelta
@@ -164,9 +173,7 @@ def due_sources(conn, sources: list[SourceSpec], *, force: bool = False) -> list
         pass
     due: list[SourceSpec] = []
     for s in sources:
-        if not s.enabled or s.quarantine_reason:
-            continue
-        if s.validation_status not in ("validated", "validated-empty-ok"):
+        if not collectable(s):
             continue
         if force:
             due.append(s)

@@ -30,6 +30,7 @@ from .actions import (
 from .board import BOARD_VIEWS, PIPELINE_STATES, list_workspace_board
 from .discovery import (
     ENGAGEMENT_TYPES,
+    NO_COLLECTION,
     default_manifest_path,
     list_curated_home,
     list_explore,
@@ -71,7 +72,7 @@ def _field(label: str, value: Any) -> str:
 
 
 def _badge(value: Any, kind: str = "") -> str:
-    shown = str(value or "unknown").replace("-", " ")
+    shown = str(value or "unknown").replace("-", " ").replace("_", " ")
     return f'<span class="badge {kind}">{_e(shown)}</span>'
 
 
@@ -85,7 +86,7 @@ def _filter_options(name: str, current: str, options: tuple[str, ...], label: st
     )
     choices = [f'<option value="">{default}</option>']
     choices.extend(
-        f'<option value="{_e(value)}"{" selected" if value == current else ""}>{_e(value.replace("-", " ").title())}</option>'
+        f'<option value="{_e(value)}"{" selected" if value == current else ""}>{_e(value.replace("-", " ").replace("_", " ").title())}</option>'
         for value in options
     )
     return f'<label class="filter">{_e(label)}<select name="{_e(name)}">{"".join(choices)}</select></label>'
@@ -99,7 +100,9 @@ def _card(item: dict[str, Any], *, view: str, selected: str | None, filters: dic
     review = item.get("review") or {}
     review_note = ""
     if view == "home":
-        reasons = ", ".join(str(code).replace("-", " ") for code in review.get("reason_codes") or [])
+        reasons = ", ".join(
+            str(code).replace("-", " ").replace("_", " ") for code in review.get("reason_codes") or []
+        )
         facts = item.get("verified_facts") or {}
         eligibility = item.get("eligibility") or {}
         unknowns = [
@@ -137,7 +140,7 @@ def _explore_card(item: dict[str, Any], *, selected: str | None, filters: dict[s
     finding = item.get("screening") or {}
     focus = finding.get("focus") or {}
     screening = (
-        f'<span class="card-meta">Screening: {_e(str(finding.get("state") or "").replace("-", " "))}'
+        f'<span class="card-meta">Screening: {_e(str(finding.get("state") or "").replace("-", " ").replace("_", " "))}'
         f" · {_e(str(finding.get('lane') or '').replace('-', ' '))}</span>"
         f'<span class="card-meta">Research: {_e(item.get("research_status"))}</span>'
         f'<span class="card-meta">Opportunity focus: {_e(focus.get("match"))}</span>'
@@ -307,7 +310,7 @@ def _detail(root: Path, item: dict[str, Any], token: str, view: str) -> str:
                 '<label>Reason <span class="optional">optional</span><select name="reason_code">',
                 '<option value="">Choose a reason</option>',
                 *(
-                    f'<option value="{_e(code)}">{_e(code.replace("-", " ").title())}</option>'
+                    f'<option value="{_e(code)}">{_e(code.replace("-", " ").replace("_", " ").title())}</option>'
                     for code in _REASON_CODES
                 ),
                 "</select></label>",
@@ -326,7 +329,7 @@ def _detail(root: Path, item: dict[str, Any], token: str, view: str) -> str:
             f'<input type="hidden" name="view" value="{_e(view)}"><input type="hidden" name="action" value="pipeline">',
             '<label>Pipeline state<select name="pipeline_state">',
             *(
-                f'<option value="{_e(state)}"{" selected" if item.get("pipeline_state") == state else ""}>{_e(state.replace("-", " ").title())}</option>'
+                f'<option value="{_e(state)}"{" selected" if item.get("pipeline_state") == state else ""}>{_e(state.replace("-", " ").replace("_", " ").title())}</option>'
                 for state in sorted(PIPELINE_STATES)
             ),
             '</select></label><button class="button subtle">Update pipeline</button></form>',
@@ -355,7 +358,7 @@ def _detail(root: Path, item: dict[str, Any], token: str, view: str) -> str:
             f'<input type="hidden" name="view" value="{_e(view)}"><input type="hidden" name="action" value="application-request">',
             '<label>Artifact<select name="artifact_type">',
             *(
-                f'<option value="{_e(kind)}">{_e(kind.replace("-", " ").title())}</option>'
+                f'<option value="{_e(kind)}">{_e(kind.replace("-", " ").replace("_", " ").title())}</option>'
                 for kind in ARTIFACT_TYPES
             ),
             "</select></label>",
@@ -526,11 +529,12 @@ def render_dashboard(
                 else "No imported review currently calls for action. Explore still shows unreviewed leads."
             )
         elif view == "explore":
-            message = (
-                "Explore is unavailable until a valid current export is selected."
-                if explore_error
-                else "No leads match these filters in the current queue."
-            )
+            if explore_error == NO_COLLECTION:
+                message = "Explore fills in after the first collection."
+            elif explore_error:
+                message = "Explore is unavailable until a valid current export is selected."
+            else:
+                message = "No leads match these filters in the current queue."
         else:
             message = "Try another board view or clear your filters."
         cards = f'<div class="empty"><span aria-hidden="true">◇</span><h3>{_e(message)}</h3></div>'
@@ -636,25 +640,31 @@ def render_dashboard(
                 f"{queue_summary.get('cap_exempt_programs', 0)} preferred early programs retained outside the employer cap. "
                 f"{queue_summary['hidden_by_cap']} matching leads hidden by the employer cap; use the filter to show them.</p>"
             )
+    elif explore_error == NO_COLLECTION and view in {"home", "explore"}:
+        coverage = f'<p class="evidence-note" role="status">{_e(NO_COLLECTION)}</p>'
     elif explore_error and view in {"home", "explore"}:
         coverage = f'<p class="evidence-note" role="status">Explore unavailable: {_e(explore_error)}</p>'
     css = files("opportunity_discovery").joinpath("dashboard.css").read_text(encoding="utf-8")
-    stat = (
-        "Unavailable"
-        if view == "explore" and explore_error
-        else page["queue_count"]
-        if view == "explore" and not explore_error
-        else page["total"]
-    )
+    # Before the first collection Explore is empty, not broken.
+    not_collected = explore_error == NO_COLLECTION
+    if view == "explore" and not_collected:
+        stat: Any = 0
+    elif view == "explore" and explore_error:
+        stat = "Unavailable"
+    elif view == "explore":
+        stat = page["queue_count"]
+    else:
+        stat = page["total"]
     stat_label = (
         ("current collection leads" if page.get("personalized") else "current queue leads")
         if view == "explore"
         else "items in this view"
     )
-    shown_total = "Unavailable" if view == "explore" and explore_error else str(page["total"])
+    failed = bool(explore_error) and not not_collected
+    shown_total = "Unavailable" if view == "explore" and failed else str(page["total"])
     pagination = (
         "<span>Current queue unavailable</span>"
-        if view == "explore" and explore_error
+        if view == "explore" and failed
         else f"<span>Showing {len(page['items'])} of {page['total']}</span>{paging}"
     )
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">

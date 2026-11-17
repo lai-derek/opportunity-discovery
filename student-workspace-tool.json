@@ -13,7 +13,7 @@
       "name": "schedule",
       "label": "Collect new opportunities daily at 7:30 (Windows Task Scheduler)",
       "args": ["--schedule"],
-      "default": true
+      "default": false
     }
   ],
   "instructions": "docs/workspace-section.md",

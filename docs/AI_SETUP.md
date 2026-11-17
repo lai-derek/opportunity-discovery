@@ -58,7 +58,8 @@ Send this prompt when you want recommendations:
 > screened, plausible, officially checked, awaiting investigation, and selected
 > or deferred for later work.
 
-Your AI needs web and command access to complete this step.
+Your AI needs web and command access to complete this step. The first
+collection in a new workspace takes about 10 minutes before screening starts.
 
 The dashboard has two views:
 
@@ -79,7 +80,9 @@ If the browser does not open, visit [the dashboard](http://127.0.0.1:8765/).
 Use **Done** when no further action is needed, **Delete** to hide an unwanted
 item, and **Restore** to bring either back.
 
-Daily collection adds new leads to Explore but doesn't update Home. To refresh
+Daily collection, if you turned it on in setup, adds new leads to Explore but
+doesn't update Home; to turn it on later, see
+[Collection on Windows](OPERATIONS_WINDOWS.md#daily-collection). To refresh
 recommendations, stop the dashboard and send the step 2 prompt again. Screening
 itself is ordinary code; only the research your AI does uses your AI tool.
 

@@ -2,7 +2,8 @@
 
 Contract (see runner.workflow_exit_code):
 - 0: no source failed, nothing due, or at least one attempted source succeeded
-- 1: sources were attempted but every attempt failed
+- 1: sources were attempted, every attempt failed, and no other source is
+  still current from a recent successful check
 - 2: configuration error or unexpected fatal failure
 - 3: another run holds data/run.lock
 """
@@ -59,6 +60,13 @@ def test_exit_code_all_failed_is_one():
     s = RunSummary(run_id="r", started_at="t")
     s.sources_attempted, s.sources_succeeded, s.sources_failed = 3, 0, 3
     assert workflow_exit_code(s) == 1
+
+
+def test_exit_code_failed_retries_with_current_sources_is_zero():
+    s = RunSummary(run_id="r", started_at="t")
+    s.sources_attempted, s.sources_succeeded, s.sources_failed = 3, 0, 3
+    s.detail["current_sources"] = 10
+    assert workflow_exit_code(s) == 0
 
 
 # --- CLI behavior ------------------------------------------------------------
@@ -121,6 +129,28 @@ def test_partial_failure_exits_zero(engine_config, patched_fetcher, capsys):
     assert "Source coverage unavailable" in refreshed
     assert "attempted 2; succeeded 1; failed 1" not in refreshed
     capsys.readouterr()
+
+
+def test_repeat_run_retrying_only_failed_sources_exits_zero(engine_config, patched_fetcher, capsys):
+    patched_fetcher.add(
+        "https://ok.example/", 200, '{"jobs": [{"title": "Intern", "url": "https://ok.example/apply/1"}]}'
+    )
+    patched_fetcher.add("https://bad.example/", 503, "upstream down")
+    write_sources_toml(
+        engine_config,
+        [
+            _validated_feed_source("feed-ok", "https://ok.example/feed.json"),
+            _validated_feed_source("feed-bad", "https://bad.example/feed.json"),
+        ],
+    )
+    assert _run(engine_config, "run") == 0
+    capsys.readouterr()
+    # Only feed-bad is due again; it fails, but feed-ok is still current.
+    assert main(["--config", str(engine_config.config_path), "run"]) == 0
+    out = capsys.readouterr().out
+    assert "0 succeeded, 1 failed, 1 attempted (1 others still current, not due yet)" in out
+    summary = json.loads((engine_config.paths.output_dir / "run_summary.json").read_text(encoding="utf-8"))
+    assert (summary["exit_code"], summary["detail"]["current_sources"]) == (0, 1)
 
 
 def test_config_error_exits_two(engine_config, tmp_path, capsys):
