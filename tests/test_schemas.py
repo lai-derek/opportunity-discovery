@@ -5,12 +5,13 @@ from pathlib import Path
 
 import jsonschema
 import pytest
+from student_workspace.state import WorkspaceStateError
 
 from opportunity_discovery.http_client import Fetcher
 from opportunity_discovery.models import RunSummary
 from opportunity_discovery.pipeline import Pipeline
 from opportunity_discovery.registry import sync_sources_to_db
-from opportunity_discovery.workspace_state import WorkspaceStateError, validate_workspace_feedback
+from opportunity_discovery.review import validate_workspace_feedback
 from tests.helpers import MockFetcher, load_fixture, make_db, source
 
 SCHEMA_DIR = Path(__file__).parent.parent / "schemas"
@@ -91,8 +92,8 @@ def test_synthetic_review_response_validates():
 @pytest.mark.parametrize(
     ("schema_name", "fixture_name"),
     [
-        ("workspace-review.schema.json", "phase4-workspace-review.json"),
-        ("workspace-feedback.schema.json", "phase4-feedback.json"),
+        ("opportunity-review.schema.json", "phase4-workspace-review.json"),
+        ("opportunity-feedback.schema.json", "phase4-feedback.json"),
     ],
 )
 def test_synthetic_private_workspace_inputs_validate(schema_name, fixture_name):
@@ -124,7 +125,7 @@ def test_workspace_feedback_schema_and_runtime_validator_parity(mutate, expected
         (Path(__file__).parent / "fixtures" / "demo" / "phase4-feedback.json").read_text(encoding="utf-8")
     )
     mutate(document["feedback"][0])
-    schema = json.loads((SCHEMA_DIR / "workspace-feedback.schema.json").read_text(encoding="utf-8"))
+    schema = json.loads((SCHEMA_DIR / "opportunity-feedback.schema.json").read_text(encoding="utf-8"))
     validator = jsonschema.Draft202012Validator(
         schema, registry=load_registry(), format_checker=jsonschema.FormatChecker()
     )
@@ -137,64 +138,6 @@ def test_workspace_feedback_schema_and_runtime_validator_parity(mutate, expected
         runtime_valid = True
     assert schema_valid is expected_valid
     assert runtime_valid == schema_valid
-
-
-def test_workspace_source_manifest_schema_accepts_custom_metadata():
-    schema = json.loads((SCHEMA_DIR / "workspace-source-manifest.schema.json").read_text(encoding="utf-8"))
-    manifest = {
-        "schema_version": "1.0",
-        "imports": [
-            {
-                "sha256": "0" * 64,
-                "original_name": "synthetic-notes.txt",
-                "stored_path": "sources/2026-09-08-synthetic-notes.txt",
-                "imported_at": "2026-09-08T12:00:00Z",
-                "custom": {"synthetic_label": "demo"},
-            }
-        ],
-        "external_references": [
-            {
-                "path": "Z:/synthetic-project",
-                "label": "Synthetic read-only project",
-                "custom": {"access": "read-only"},
-            }
-        ],
-        "custom": {"synthetic_scenario": "phase-3-demo"},
-    }
-    jsonschema.Draft202012Validator(
-        schema, registry=load_registry(), format_checker=jsonschema.FormatChecker()
-    ).validate(manifest)
-
-
-@pytest.mark.parametrize(
-    "stored_path",
-    [
-        "/sources/notes.txt",
-        "C:/sources/notes.txt",
-        "sources/../notes.txt",
-        "sources/nested/../../notes.txt",
-        "sources\\notes.txt",
-        "inbox/notes.txt",
-    ],
-)
-def test_workspace_source_manifest_rejects_nonportable_or_escaping_path(stored_path):
-    schema = json.loads((SCHEMA_DIR / "workspace-source-manifest.schema.json").read_text(encoding="utf-8"))
-    manifest = {
-        "schema_version": "1.0",
-        "imports": [
-            {
-                "sha256": "0" * 64,
-                "original_name": "notes.txt",
-                "stored_path": stored_path,
-                "imported_at": "2026-09-08T12:00:00Z",
-            }
-        ],
-        "custom": {},
-    }
-    with pytest.raises(jsonschema.ValidationError):
-        jsonschema.Draft202012Validator(
-            schema, registry=load_registry(), format_checker=jsonschema.FormatChecker()
-        ).validate(manifest)
 
 
 def test_run_summary_and_health_validate(exported):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -11,8 +12,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from . import constants as c
+from . import facts_cache
 from .adapters.base import run_source
 from .config import EngineConfig
+from .db import store_observation_payload
 from .http_client import Fetcher
 from .identity import description_hash, identity_key
 from .models import AdapterResult, RawOpportunity, RunSummary, SourceSpec
@@ -23,9 +26,37 @@ from .urlnorm import normalize_url
 
 log = logging.getLogger(__name__)
 
+# Classifications of a source's own text that the current classifier may reset
+# to "unknown" (see _apply_observation).
+_RECLASSIFIED_FIELDS = frozenset({"engagement_type", "career_stage"})
+
 
 def _now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# Change details keep short values verbatim. Long text is recorded by hash,
+# length and a short preview; the full old and new text remain in the
+# observation payloads of the runs on either side of the change.
+_DETAIL_TEXT_LIMIT = 160
+_DETAIL_PREVIEW_CHARS = 120
+
+
+def _compact_value(value: Any) -> Any:
+    if isinstance(value, str) and len(value) > _DETAIL_TEXT_LIMIT:
+        return {
+            "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+            "chars": len(value),
+            "preview": value[:_DETAIL_PREVIEW_CHARS],
+        }
+    return value
+
+
+def _compact_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: {side: _compact_value(v) for side, v in value.items()} if isinstance(value, dict) else value
+        for key, value in detail.items()
+    }
 
 
 class Pipeline:
@@ -35,6 +66,7 @@ class Pipeline:
         self.run_id = run_id
         self.summary = summary
         self._observed_by_source: dict[str, set[str]] = {}
+        self._facts_cache = facts_cache.FactsCache(conn)
         # ensure the run row exists before child rows reference it
         conn.execute(
             "INSERT OR IGNORE INTO collection_runs (run_id, started_at, mode) VALUES (?, ?, 'collect')",
@@ -46,7 +78,8 @@ class Pipeline:
     def process_source(self, source: SourceSpec, fetcher: Fetcher) -> None:
         """Run one source end-to-end with full isolation."""
         started_ns = time.monotonic_ns()
-        result: AdapterResult = run_source(source, fetcher, excerpt_chars=self.cfg.export.excerpt_chars)
+        with facts_cache.using(self._facts_cache):
+            result: AdapterResult = run_source(source, fetcher, excerpt_chars=self.cfg.export.excerpt_chars)
         duration_ms = max(0, (time.monotonic_ns() - started_ns) // 1_000_000)
         self._record_check(source, result, duration_ms)
         if not result.ok:
@@ -256,11 +289,7 @@ class Pipeline:
                 tuple(record.values()),
             )
             self._touch_provenance(opp_id, source, raw, now)
-            self.conn.execute(
-                "INSERT INTO observations (run_id, source_id, opportunity_id, observed_at, record_json)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (self.run_id, source.source_id, opp_id, now, json.dumps(fields)),
-            )
+            self._insert_observation(source.source_id, opp_id, now, fields)
             self.conn.execute(
                 "INSERT INTO changes (opportunity_id, run_id, change_type, changed_fields_json,"
                 " detected_at) VALUES (?, ?, 'new', '{}', ?)",
@@ -269,7 +298,7 @@ class Pipeline:
             self.summary.opportunities_new += 1
             return True
 
-        return self._apply_observation(existing, source, raw, opp_id_override=None)
+        return self._apply_observation(existing, source, raw, opp_id_override=None, fields=fields)
 
     def _find_duplicate_by_url(self, opp_id: str, norm_url: str) -> str | None:
         if not norm_url:
@@ -313,17 +342,21 @@ class Pipeline:
         self.conn.commit()
 
     def _apply_observation(
-        self, existing: sqlite3.Row, source: SourceSpec, raw: RawOpportunity, *, opp_id_override: str | None
+        self,
+        existing: sqlite3.Row,
+        source: SourceSpec,
+        raw: RawOpportunity,
+        *,
+        opp_id_override: str | None,
+        fields: dict[str, Any] | None = None,
     ) -> bool:
         """Update an existing opportunity with a fresh observation; detect changes."""
         opp_id = opp_id_override or str(existing["opportunity_id"])
         now = _now()
-        fields = self._normalize_fields(raw, source)
-        self.conn.execute(
-            "INSERT INTO observations (run_id, source_id, opportunity_id, observed_at, record_json)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (self.run_id, source.source_id, opp_id, now, json.dumps(fields)),
-        )
+        # The caller may already have normalized this observation; normalization
+        # is a pure function of (raw, source), so reuse avoids repeating it.
+        fields = fields if fields is not None else self._normalize_fields(raw, source)
+        self._insert_observation(source.source_id, opp_id, now, fields)
         self._touch_provenance(opp_id, source, raw, now)
 
         changed: dict[str, dict[str, Any]] = {}
@@ -364,6 +397,17 @@ class Pipeline:
                     updates["description_hash"] = new_desc_hash
                     updates["description_excerpt"] = fields["description_excerpt"]
                     _set_owner("description")
+                continue
+            if col in _RECLASSIFIED_FIELDS and new_val == c.UNKNOWN:
+                # Engagement and career stage classify the source's own text. When
+                # the current classifier no longer supports an earlier value, reset
+                # it; otherwise a value from an older rule set keeps routing the
+                # lead. A reclassification is not a source change, so it records no
+                # change event. Field ownership still decides which source may set
+                # it, so sources cannot ping-pong.
+                if old_val not in (None, "", c.UNKNOWN) and _may_overwrite(col):
+                    updates[col] = new_val
+                    _set_owner(col)
                 continue
             clearable = raw.source_constraints is not None and col in {
                 "requirements_text",
@@ -408,7 +452,7 @@ class Pipeline:
                 self.conn.execute(
                     "INSERT INTO changes (opportunity_id, run_id, change_type, changed_fields_json,"
                     " detected_at) VALUES (?, ?, ?, ?, ?)",
-                    (opp_id, self.run_id, event_type, json.dumps(detail), now),
+                    (opp_id, self.run_id, event_type, json.dumps(_compact_detail(detail)), now),
                 )
             self.summary.opportunities_changed += 1
         # alias bookkeeping: alternate titles preserved
@@ -505,6 +549,15 @@ class Pipeline:
         )
         return False
 
+    def _insert_observation(self, source_id: str, opp_id: str, now: str, fields: dict[str, Any]) -> None:
+        """Record this run's observation; identical record JSON is stored once."""
+        digest = store_observation_payload(self.conn, json.dumps(fields))
+        self.conn.execute(
+            "INSERT INTO observations (run_id, source_id, opportunity_id, observed_at, record_json,"
+            " payload_hash) VALUES (?, ?, ?, ?, '', ?)",
+            (self.run_id, source_id, opp_id, now, digest),
+        )
+
     def _normalize_fields(self, raw: RawOpportunity, source: SourceSpec) -> dict[str, Any]:
         season_cfg = self.cfg.season
         explicit = extract_explicit_language(raw)
@@ -533,6 +586,7 @@ class Pipeline:
             RawOpportunity(
                 title=raw.title,
                 canonical_url=raw.canonical_url,
+                provider=raw.provider,
                 description_excerpt=raw.description_excerpt,
                 requirements_text=raw.requirements_text,
                 source_constraints=raw.source_constraints,
@@ -542,6 +596,9 @@ class Pipeline:
                 required_degree=raw.required_degree,
                 preferred_degree=raw.preferred_degree,
                 experience_requirement_text=raw.experience_requirement_text,
+                # A configured program page is program evidence for routing.
+                program_family_id=raw.program_family_id,
+                overview_url=raw.overview_url,
                 extra=raw.extra,
             )
         )

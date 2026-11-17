@@ -7,6 +7,38 @@
 # they never count as validated and never break runs.
 
 [[sources]]
+source_id = "agg-underclassmen-opportunities"
+display_name = "Underclassmen Opportunities (community list)"
+organization = "Community aggregator"
+adapter = "githublist"
+landing_url = "https://github.com/Jose-Gael-Cruz-Lopez/underclassmen-opportunities"
+endpoint_config = { url = "https://raw.githubusercontent.com/Jose-Gael-Cruz-Lopez/underclassmen-opportunities/main/README.md", format = "sectioned_table", expected_tables = 9, min_results = 1, max_results = 500 }
+categories = ["internship", "program", "research", "scholarship", "aggregator"]
+tags = ["aggregate-feed", "github-list", "underclassmen", "early-career"]
+cadence_hours = 24
+official_source = false
+enabled = true
+validation_status = "validated"
+last_validated = "2026-10-24"
+provenance_note = "Live HTTP 200 probe on 2026-10-24 parsed 134 records across nine tables. Community discovery leads only; eligibility and status require official-page verification. Date Posted is the repository addition date, not employer publication. README only; archive and resource links are excluded."
+
+[[sources]]
+source_id = "agg-zapply-underclassmen"
+display_name = "Zapply Underclassmen Internships (research reference; disabled)"
+organization = "Zapply"
+adapter = "githublist"
+landing_url = "https://github.com/zapplyjobs/underclassmen-internships"
+endpoint_config = { url = "https://raw.githubusercontent.com/zapplyjobs/underclassmen-internships/main/README.md", format = "sectioned_table", columns = { title = "Name", canonical_url = "Name" }, expected_tables = 6, allow_unlinked_rows = true, min_results = 1, max_results = 500 }
+categories = ["internship", "program", "fellowship", "aggregator"]
+tags = ["aggregate-feed", "github-list", "underclassmen", "research-reference"]
+cadence_hours = 168
+official_source = false
+enabled = false
+validation_status = "quarantined"
+provenance_note = "Research reference only. Credit Zapply and link to the repository when discussing its compilation. Do not collect or redistribute this feed without resolving its Data & Reuse restriction; use independently verified official program pages for new sources."
+quarantine_reason = "README Data & Reuse prohibits resubmitting listings to third-party aggregators or feeds; automated ingestion into this collector is not enabled. https://github.com/zapplyjobs/underclassmen-internships#data--reuse"
+
+[[sources]]
 source_id = "agg-zshah-internships-csv"
 display_name = "Automated Summer 2027 / Fall 2026 Tech Internships (community CSV)"
 organization = "Community aggregator"

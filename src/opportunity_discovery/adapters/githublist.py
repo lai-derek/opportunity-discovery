@@ -2,7 +2,7 @@
 
 endpoint_config:
     url: https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}
-    format: table | bullets | html_table
+    format: table | bullets | html_table | sectioned_table
     columns:                     # matched case-insensitively by header
         title: Role
         canonical_url: Link
@@ -13,12 +13,13 @@ endpoint_config:
 
 from __future__ import annotations
 
+import html
 import re
 from collections.abc import Callable
 from typing import Any
 
 from ..models import AdapterResult, RawOpportunity
-from .base import outcome_to_result, register_adapter
+from .base import bounded_excerpt, outcome_to_result, register_adapter
 
 _MD_TABLE_ROW = re.compile(r"^\|(.+)\|\s*$")
 _LINK = re.compile(r"\[([^\]]*)\]\((https?://[^)\s]+)\)")
@@ -76,6 +77,10 @@ class GithubListAdapter:
         text = out.text or ""
         fmt = cfg.get("format", "table")
         default_org = cfg.get("organization") or ctx.source.organization
+        if fmt == "sectioned_table":
+            result = self._parse_sectioned_tables(text, cfg, default_org, ctx.excerpt_chars)
+            result.http_status = out.status
+            return result
         if fmt == "table":
             records, rows_seen = self._parse_table(text, cfg, default_org)
         elif fmt == "html_table":
@@ -145,6 +150,128 @@ class GithubListAdapter:
                     )
                 )
         return records, rows_seen
+
+    def _parse_sectioned_tables(
+        self, text: str, cfg: dict, default_org: str | None, excerpt_chars: int
+    ) -> AdapterResult:
+        """Parse independently headed Markdown tables; reject partial coverage.
+
+        Opt-in so existing feeds retain their parsing and candidate identities.
+        Community status/date-added text stays in excerpts, never official state
+        or employer posted_date. Natural-language deadlines stay source language.
+        """
+        from bs4 import BeautifulSoup
+
+        aliases = {
+            **_COLUMN_ALIASES,
+            "title": ["role", "program", "scholarship", "opportunity", "name", "title"],
+            "organization": ["organization", "university/organization", "company"],
+        }
+        columns = {**_DEFAULT_COLUMNS, **(cfg.get("columns") or {})}
+        records: list[RawOpportunity] = []
+        tables = 0
+        lines = text.splitlines()
+
+        def cells(line: str) -> list[str]:
+            match = _MD_TABLE_ROW.match(line.strip())
+            return [c.strip().replace(r"\|", "|") for c in re.split(r"(?<!\\)\|", match[1])] if match else []
+
+        def plain(value: str) -> str:
+            value = _LINK.sub(lambda m: m[1], value)
+            if "<" in value:
+                return BeautifulSoup(value, "html.parser").get_text(" ", strip=True)
+            return html.unescape(value).strip()
+
+        def link(value: str) -> str | None:
+            links = _LINK.findall(value)
+            if links:
+                return links[-1][1]
+            if value.startswith(("https://", "http://")):
+                return value
+            for anchor in BeautifulSoup(value, "html.parser").find_all("a", href=True):
+                href = str(anchor["href"])
+                if href.startswith(("https://", "http://")):
+                    return href
+            return None
+
+        def failure(detail: str, state: str = "format-changed") -> AdapterResult:
+            return AdapterResult(ok=False, state=state, detail=detail)
+
+        index = 0
+        while index + 1 < len(lines):
+            header = cells(lines[index])
+            separator = cells(lines[index + 1])
+            if not header or not separator or not all(re.fullmatch(r":?-{2,}:?", c) for c in separator):
+                index += 1
+                continue
+            tables += 1
+            if len(header) != len(separator):
+                return failure(f"table {tables}: header/separator width mismatch")
+            lowered = [plain(c).lower() for c in header]
+            colmap = {}
+            for logical, wanted in columns.items():
+                names = [str(wanted).lower(), *aliases.get(logical, [])]
+                found = next((lowered.index(name) for name in names if name in lowered), None)
+                if found is not None:
+                    colmap[logical] = found
+            if "title" not in colmap or "canonical_url" not in colmap:
+                return failure(f"table {tables}: missing title/application columns")
+            # The list labels each table by its title column. "Program" and
+            # "Scholarship" tables state the job type for every row, which the
+            # titles themselves often do not ("Discover", "Career Prep").
+            table_engagement = "program" if lowered[colmap["title"]] in {"program", "scholarship"} else None
+            last_org = None
+            index += 2
+            while index < len(lines):
+                row = cells(lines[index])
+                if not row:
+                    break
+                if len(row) != len(header):
+                    return failure(f"table {tables}, line {index + 1}: row width mismatch")
+
+                def cell(logical: str, bound_row=row, bound_map=colmap) -> str:
+                    return bound_row[bound_map[logical]] if logical in bound_map else ""
+
+                title = plain(cell("title"))
+                url = link(cell("canonical_url"))
+                if not title or not url:
+                    if cfg.get("allow_unlinked_rows") and title and not url:
+                        index += 1
+                        continue
+                    return failure(f"table {tables}, line {index + 1}: missing title/application link")
+                org = plain(cell("organization"))
+                if org and org != "↳":
+                    last_org = org
+                # Keep labels and eligibility language even when a title is long.
+                details = "\n".join(
+                    f"{plain(label)}: {plain(value)}"
+                    for position, (label, value) in enumerate(zip(header, row, strict=True))
+                    if value and (position != colmap["canonical_url"] or position == colmap["title"])
+                )
+                deadline = plain(cell("deadline"))
+                records.append(
+                    RawOpportunity(
+                        title=bounded_excerpt(title, 240) or title,
+                        canonical_url=url,
+                        organization=last_org or default_org,
+                        location_text=plain(cell("location_text")) or None,
+                        deadline=deadline if re.fullmatch(r"\d{4}-\d{2}-\d{2}", deadline) else None,
+                        requirements_text=bounded_excerpt(details, 2400),
+                        description_excerpt=bounded_excerpt(details, excerpt_chars),
+                        season=plain(cell("season")) or None,
+                        engagement_type=table_engagement,
+                    )
+                )
+                if len(records) > cfg.get("max_results", 1000):
+                    return failure("sectioned tables exceeded max_results", "coverage-warning")
+                index += 1
+        if not tables:
+            return failure("no Markdown tables with header separators found")
+        if "expected_tables" in cfg and tables != cfg["expected_tables"]:
+            return failure(f"expected {cfg['expected_tables']} tables, found {tables}", "coverage-warning")
+        if len(records) < cfg.get("min_results", 0):
+            return failure("sectioned tables below min_results", "coverage-warning")
+        return AdapterResult(ok=True, records=records, empty_ok=not records)
 
     def _parse_html_table(
         self, text: str, cfg: dict, default_org: str | None

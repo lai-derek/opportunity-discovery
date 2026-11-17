@@ -8,25 +8,25 @@ import pytest
 
 from opportunity_discovery import constants as c
 from opportunity_discovery.cli import main
+from opportunity_discovery.constraints import candidate_constraints, compact_review_batch
 from opportunity_discovery.extraction import extract_description
 from opportunity_discovery.models import RawOpportunity
+from opportunity_discovery.review import _promotion_threshold
 from opportunity_discovery.routing import normalize_routing_fields, route_profiles
-from opportunity_discovery.source_constraints import (
-    authorization_requirement,
-    graduation_windows,
-    parse_constraints,
-    program_evidence,
-)
-from opportunity_discovery.workspace_constraints import candidate_constraints, compact_review_batch
-from opportunity_discovery.workspace_screening import (
+from opportunity_discovery.screening import (
     _review_role_conflict,
     apply_screening_response,
     list_personal_feed,
     screen_candidate,
     validate_profile,
 )
-from opportunity_discovery.workspace_state import _promotion_threshold
-from tests.test_workspace_screening import PROFILE, lead, response, setup
+from opportunity_discovery.source_constraints import (
+    authorization_requirement,
+    graduation_windows,
+    parse_constraints,
+    program_evidence,
+)
+from tests.test_screening import PROFILE, lead, response, setup
 
 CASES = json.loads((Path(__file__).parent / "fixtures/demo/accuracy-constraints.json").read_text())
 
@@ -96,7 +96,7 @@ def test_degree_conjunctions_do_not_become_unconditional_alternatives(text, oper
     ],
 )
 def test_funding_payer_and_limits_match_in_structured_and_legacy_paths(text, expected):
-    from opportunity_discovery.workspace_screening import _travel_funding
+    from opportunity_discovery.screening import _travel_funding
 
     rules = parse_constraints(text)
     assert rules[0]["funding"] == expected
@@ -142,7 +142,7 @@ def test_compact_cli_preserves_hashes_quotes_and_source_facts_without_repeated_p
         assert text not in item["ai_evidence_packet"]["captured_requirements"]
         assert item["major_language"] == original["major_language"]
         assert item["event_start_date"] == "2035-06-01"
-    assert main(["workspace-screening", str(root), "--manifest", str(manifest), "--compact"]) == 0
+    assert main(["screening", str(root), "--manifest", str(manifest), "--compact"]) == 0
     assert json.loads(capsys.readouterr().out)["packet_format"] == "compact-evidence-v1"
     assert before == (manifest.parent / "candidates.jsonl").read_bytes()
     assert compact_review_batch({**full, "items": []})["items"] == []
@@ -158,7 +158,7 @@ def test_many_unresolved_source_clauses_can_round_trip_without_dropping_question
     assert len(finding["questions"]) >= 35
     document = response(root, manifest, row, state="needs-clarification", questions=finding["questions"])
     schema = json.loads(
-        (Path(__file__).parent.parent / "schemas/workspace-screening-response.schema.json").read_text()
+        (Path(__file__).parent.parent / "schemas/opportunity-screening-response.schema.json").read_text()
     )
     jsonschema.validate(document, schema)
     assert apply_screening_response(root, document, manifest)["applied"] == 1
@@ -475,7 +475,7 @@ def test_focused_packet_is_private_and_audit_sample_recovers_all_groups(tmp_path
         lead(3, graduation_window_language="Graduating in 2034."),
     ]
     root, manifest = setup(tmp_path, rows)
-    from opportunity_discovery.workspace_screening import set_screening_profile
+    from opportunity_discovery.screening import set_screening_profile
 
     set_screening_profile(root, {**PROFILE, "opportunity_focus": "early-opportunities"})
     public = (manifest.parent / "candidates.jsonl").read_bytes()

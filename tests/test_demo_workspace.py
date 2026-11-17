@@ -5,8 +5,8 @@ import runpy
 from pathlib import Path
 from urllib.request import urlopen
 
-from opportunity_discovery.workspace_board import list_workspace_board
-from tests.test_workspace_dashboard import dashboard, post
+from opportunity_discovery.board import list_workspace_board
+from tests.test_dashboard import dashboard, post
 
 SCRIPT = Path(__file__).parent.parent / "scripts" / "demo_workspace.py"
 SCENARIO = json.loads(
@@ -22,7 +22,7 @@ def test_synthetic_demo_browser_and_manual_request(tmp_path):
     original_request = root / result["request_path"]
     assert (original_request / "response.json").is_file()
     assert (original_request / "drafts" / "synthetic-resume.md").is_file()
-    assert (root / ".opdisc" / "demo-generation" / "workspace-review.json").is_file()
+    assert (root / ".student-workspace" / "demo-generation" / "workspace-review.json").is_file()
 
     promoted = SCENARIO["opportunity_id"]
     with dashboard(root, Path(result["manifest_path"])) as (server, url):

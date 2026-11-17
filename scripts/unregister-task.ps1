@@ -1,18 +1,17 @@
-# Removes (or disables) the Windows Task Scheduler task created by
-# register-task.ps1. Review before running.
+# Removes (or disables) the daily collection task created by register-task.ps1.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\unregister-task.ps1          # remove
 #   powershell -ExecutionPolicy Bypass -File scripts\unregister-task.ps1 -Disable # disable only
 param(
-    [switch]$Disable
+    [switch]$Disable,
+    [string]$TaskName = "Student Workspace - Opportunity Discovery"
 )
 $ErrorActionPreference = "Stop"
-$taskName = "OpportunityDiscovery"
 
 if ($Disable) {
-    Disable-ScheduledTask -TaskName $taskName | Out-Null
-    Write-Host "Task '$taskName' disabled."
+    Disable-ScheduledTask -TaskName $TaskName | Out-Null
+    Write-Host "Task '$TaskName' disabled."
 } else {
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-    Write-Host "Task '$taskName' removed."
+    Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+    Write-Host "Task '$TaskName' removed."
 }

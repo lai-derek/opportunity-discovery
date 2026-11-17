@@ -10,11 +10,12 @@
 - **No AI/model dependencies** and no telemetry.
 - **No submissions**: the engine never applies, messages, uploads, or saves
   anything to any service.
-- **Selected workspace**: `opdisc init-workspace` writes private starter
-  files only to the path explicitly selected by the user. Review, feedback,
-  recovery, backup, and workspace-audit commands require that explicit root and
-  never copy private state into collector SQLite or public exports. Initialization
-  warns if the selected workspace is inside Git; it does not refuse that path.
+- **Selected workspace**: workspace commands take an explicit workspace root
+  and never copy private state into public exports. The collector database and
+  exports for a workspace live in its `.student-workspace/opportunity-discovery/`
+  folder. Screening refuses to write when private state is tracked by Git; a
+  workspace that merely sits inside a Git folder gets a warning from
+  `student-workspace audit` instead.
 - **Bounded public HTTP**: remote URLs must use HTTP(S), may not embed
   credentials, resolve only to public addresses, and are revalidated at each
   redirect. Redirect count and response body size are capped. Program-page
@@ -26,18 +27,9 @@ Collector SQLite and public outputs never store personal data: applicant
 profiles, eligibility decisions, resumes/transcripts/essays, application
 history or outcomes, or demographic data. The engine stores only what public
 sources state about opportunities. A selected private workspace may contain
-private user material and decisions by design. Its files must be kept outside
-the engine Git checkout and publication boundary; `workspace-audit` reports
-tracked private files.
-
-Private workspace backups are unencrypted ZIP files. Full backups include new
-workspace folders by default, including any private credentials stored there.
-Engine code is excluded; only its two workspace-local collector settings files
-are included. Generated caches, environments, Git metadata, and previous backup
-ZIPs are excluded. Backup skips symlinks and Windows junctions. Restore rejects
-linked targets, traversal, and unlisted content; it also rejects
-Windows alternate-data-stream names and case-insensitive target
-collisions, verifies recorded hashes, and creates a full pre-restore backup.
+private user material and decisions by design. Its files must be kept out of any
+published Git checkout; `student-workspace audit` reports tracked private files.
+Backups and restore are provided by student-workspace.
 Knowledge history operations reject symlinks in every path component, and the
 workspace audit treats manifested symlinked or out-of-sources files as errors.
 These checks do not provide encryption or access control.
@@ -65,10 +57,9 @@ tracked files for:
 
 It exits non-zero on errors. Run it before every push/publish.
 
-`opdisc workspace-audit WORKSPACE` is separate. It checks whether the private
-workspace is inside Git, reports every tracked private file, verifies preserved
-source paths/hashes, checks external and knowledge references, and warns when
-the engine checkout is dirty.
+`student-workspace audit WORKSPACE` is separate. It checks whether the private
+workspace is inside Git, reports every tracked private file, and verifies
+preserved source paths, hashes and references.
 
 ### Limitations (documented honestly)
 

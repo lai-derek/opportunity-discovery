@@ -180,7 +180,7 @@ def load_config(
     errors += _apply(export_cfg, raw.get("export", {}), set(vars(ExportConfig())))
     errors += _apply(routing, raw.get("routing", {}), {"active_profile"})
 
-    paths = PathsConfig.resolve(base, raw.get("paths", {}))
+    paths = PathsConfig.resolve(base, {**raw.get("paths", {}), **(path_overrides or {})})
 
     # basic sanity checks
     if fetch.max_concurrency < 1 or fetch.max_concurrency > 32:
@@ -223,6 +223,44 @@ def load_config(
         source_check_retention_days=int(raw.get("source_check_retention_days", 180)),
     )
     return cfg, errors
+
+
+COLLECTOR_STATE = "opportunity-discovery"
+
+
+def collector_dir(workspace: Path) -> Path:
+    """Collector data, exports and logs for one workspace; updates of tools/ never touch it."""
+    from student_workspace.state import STATE_DIR
+
+    return Path(workspace).expanduser().resolve() / STATE_DIR / COLLECTOR_STATE
+
+
+def registered_tool_path(workspace: Path) -> Path | None:
+    """The folder student-workspace registered for this tool, if any."""
+    from student_workspace.state import require_workspace
+
+    root, metadata = require_workspace(workspace)
+    record = next((tool for tool in metadata.get("tools", []) if tool.get("name") == COLLECTOR_STATE), None)
+    if record is None:
+        return None
+    tool_path = Path(str(record.get("path", "")))
+    return tool_path if tool_path.is_absolute() else root / tool_path
+
+
+def load_workspace_config(workspace: Path, config_path: Path | None = None) -> tuple[EngineConfig, list[str]]:
+    """Load the registered tool's configuration with paths below the workspace."""
+    from student_workspace.state import require_workspace
+
+    root, _metadata = require_workspace(workspace)
+    if config_path is None:
+        base = registered_tool_path(root)
+        if base is not None:
+            config_path = base / "config" / DEFAULT_CONFIG_NAME
+    state = collector_dir(root)
+    overrides = {
+        name: str(state / name.removesuffix("_dir")) for name in ("data_dir", "output_dir", "logs_dir")
+    }
+    return load_config(config_path, path_overrides=overrides)
 
 
 def _find_repo_root(start: Path) -> Path:

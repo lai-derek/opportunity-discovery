@@ -229,3 +229,71 @@ def test_synthetic_demo_routes_every_profile_and_retains_all_records(
     assert all(item["active_profile"] == switched for item in switched_export)
     assert len(switched_export) == 8
     conn.close()
+
+
+def _routed(
+    title: str, description: str = "", provider: str | None = None, employment_type: str | None = None
+):
+    fields = normalize_routing_fields(
+        RawOpportunity(
+            title=title,
+            canonical_url="https://example.test/opportunity",
+            description_excerpt=description,
+            employment_type=employment_type,
+            provider=provider,
+        )
+    )
+    return fields, route_profiles(fields)[c.PROFILE_STUDENT].state
+
+
+@pytest.mark.parametrize("provider", ["greenhouse", "lever", "ashby", "smartrecruiters", "workday"])
+def test_company_board_job_type_comes_from_title_not_description(provider):
+    description = "You may mentor our internship program and partner with research and contractor teams."
+    fields, state = _routed("Optical Engineer", description, provider=provider)
+    assert fields["engagement_type"] == c.UNKNOWN
+    assert state != c.ROUTE_INCLUDED
+    fields, state = _routed("Optical Engineering Intern", description, provider=provider)
+    assert fields["engagement_type"] == c.ENGAGEMENT_INTERNSHIP
+    assert state == c.ROUTE_INCLUDED
+    fields, _ = _routed("Optical Engineer", description, provider=provider, employment_type="Intern")
+    assert fields["engagement_type"] == c.ENGAGEMENT_INTERNSHIP
+
+
+def test_aggregator_descriptions_still_establish_job_type():
+    fields, _ = _routed("Hardware Team Opening", "Paid summer internship for undergraduates.")
+    assert fields["engagement_type"] == c.ENGAGEMENT_INTERNSHIP
+
+
+def test_two_or_more_required_years_exclude_non_internship_roles_from_student_route():
+    _, state = _routed("Data Entry Specialist (contract)", "Requires 2+ years of experience in data entry.")
+    assert state == c.ROUTE_EXCLUDED
+    _, state = _routed("Firmware Intern", "2+ years of experience with embedded C.")
+    assert state == c.ROUTE_INCLUDED
+    _, state = _routed("Data Entry Specialist (contract)", "1 year of experience in data entry.")
+    assert state != c.ROUTE_EXCLUDED
+
+
+@pytest.mark.parametrize(
+    ("title", "graduate_only"),
+    [
+        ("Software Engineer Intern - Bachelor's/Master's", False),
+        ("B.S./M.S. Hardware Intern", False),
+        ("Undergraduate or Master's Research Intern", False),
+        ("Software Engineer Intern - MS/PhD", True),
+        ("Master's Intern, Machine Learning", True),
+    ],
+)
+def test_titles_naming_both_degree_levels_are_not_graduate_only(title, graduate_only):
+    fields, state = _routed(title)
+    assert fields["graduate_degree_title_signal"] is graduate_only
+    assert (state == c.ROUTE_RESEARCH) is graduate_only
+
+
+def test_summer_analyst_title_is_an_internship():
+    fields, state = _routed("Quantitative Trading Summer Analyst - Global Markets")
+    assert fields["engagement_type"] == c.ENGAGEMENT_INTERNSHIP
+    assert state == c.ROUTE_INCLUDED
+    fields, _ = _routed(
+        "Investment Analyst", "Join our summer analyst program alumni network.", provider="greenhouse"
+    )
+    assert fields["engagement_type"] != c.ENGAGEMENT_INTERNSHIP

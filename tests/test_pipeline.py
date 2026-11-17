@@ -690,3 +690,35 @@ def test_intra_batch_duplicate_urls_do_not_churn(tmp_path, engine_config):
     assert n == 0, "same-source duplicate listings must not produce changes"
     assert conn.execute("SELECT COUNT(*) n FROM opportunities").fetchone()["n"] == 1
     conn.close()
+
+
+def test_stale_engagement_is_reset_when_current_classifier_finds_none(tmp_path, engine_config):
+    """A value left by an older rule set must not keep routing a lead."""
+    conn = make_db(tmp_path)
+    fetcher = MockFetcher()
+    fetcher.add(
+        "https://boards-api.greenhouse.io",
+        200,
+        gh_payload(
+            [job(41, "Air Vehicle Systems Verification Lead", "https://boards.greenhouse.io/v/jobs/41")]
+        ),
+    )
+    spec = source(source_id="greenhouse-v", organization="V", endpoint_config={"board": "v"})
+    sync_sources_to_db(conn, [spec])
+    p1, _ = make_pipeline(engine_config, conn)
+    p1.process_source(spec, fetcher)
+    row = conn.execute("SELECT engagement_type, routing_state FROM opportunities").fetchone()
+    assert row["engagement_type"] == "unknown"
+    assert row["routing_state"] != "included"
+
+    # Simulate the stored result of an earlier, broader classifier.
+    conn.execute("UPDATE opportunities SET engagement_type='program', routing_state='included'")
+    conn.commit()
+    p2, _ = make_pipeline(engine_config, conn)
+    p2.process_source(spec, fetcher)
+    row = conn.execute("SELECT engagement_type, routing_state FROM opportunities").fetchone()
+    assert row["engagement_type"] == "unknown"
+    assert row["routing_state"] != "included"
+    # A reclassification is not a source change.
+    assert conn.execute("SELECT COUNT(*) FROM changes WHERE change_type != 'new'").fetchone()[0] == 0
+    conn.close()

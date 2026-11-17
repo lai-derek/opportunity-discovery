@@ -9,10 +9,12 @@ import socket
 import sqlite3
 import threading
 import time
+import zlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import UTC
 from pathlib import Path
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 from urllib.request import url2pathname
 from urllib.robotparser import RobotFileParser
@@ -47,6 +49,14 @@ class FetchOutcome:
     @property
     def ok(self) -> bool:
         return self.error is None and self.status is not None and self.status < 400
+
+
+def _cached_body(row: Any) -> bytes | None:
+    """Decode a raw_cache body stored as received (NULL encoding) or zlib-compressed."""
+    if row is None or row["content"] is None:
+        return None
+    content = bytes(row["content"])
+    return zlib.decompress(content) if row["content_encoding"] == "zlib" else content
 
 
 class _DomainThrottle:
@@ -325,13 +335,11 @@ class Fetcher:
     def _serve_304(self, url: str, final_url: str, resp: httpx.Response, start_ms: int) -> FetchOutcome:
         with self._conn_lock:
             row = self.conn.execute(
-                "SELECT status, content_type, content, etag, last_modified FROM raw_cache WHERE url = ?",
+                "SELECT status, content_type, content, content_encoding, etag, last_modified"
+                " FROM raw_cache WHERE url = ?",
                 (url,),
             ).fetchone()
-        if row and row["content"] is not None:
-            body = bytes(row["content"])
-        else:
-            body = b""
+        body = _cached_body(row) or b""
         return FetchOutcome(
             url=url,
             final_url=final_url,
@@ -355,11 +363,13 @@ class Fetcher:
             self.conn.execute(
                 """
                 INSERT INTO raw_cache (url, fetched_at, status, content_type, content,
-                                       content_hash, etag, last_modified, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                       content_encoding, content_hash, etag, last_modified,
+                                       expires_at)
+                VALUES (?, ?, ?, ?, ?, 'zlib', ?, ?, ?, ?)
                 ON CONFLICT(url) DO UPDATE SET
                     fetched_at=excluded.fetched_at, status=excluded.status,
                     content_type=excluded.content_type, content=excluded.content,
+                    content_encoding=excluded.content_encoding,
                     content_hash=excluded.content_hash, etag=excluded.etag,
                     last_modified=excluded.last_modified, expires_at=excluded.expires_at
                 """,
@@ -368,7 +378,7 @@ class Fetcher:
                     now.isoformat(),
                     resp.status_code,
                     resp.headers.get("content-type"),
-                    resp.content,
+                    zlib.compress(resp.content, 6),
                     None,
                     resp.headers.get("etag"),
                     resp.headers.get("last-modified"),
@@ -380,13 +390,15 @@ class Fetcher:
     def _load_cache(self, url: str) -> dict | None:
         with self._conn_lock:
             row = self.conn.execute(
-                "SELECT status, content_type, content, etag, last_modified FROM raw_cache WHERE url = ?",
+                "SELECT status, content_type, content, content_encoding, etag, last_modified"
+                " FROM raw_cache WHERE url = ?",
                 (url,),
             ).fetchone()
-        if row and row["content"] is not None:
+        body = _cached_body(row)
+        if row and body is not None:
             return {
                 "status": row["status"],
-                "body": bytes(row["content"]),
+                "body": body,
                 "content_type": row["content_type"],
                 "etag": row["etag"],
                 "last_modified": row["last_modified"],

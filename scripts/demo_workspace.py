@@ -1,4 +1,4 @@
-"""Create the reusable synthetic board and handoff in a new external workspace."""
+"""Create the reusable synthetic board and handoff in a new student workspace."""
 
 from __future__ import annotations
 
@@ -7,11 +7,13 @@ import json
 import sys
 from pathlib import Path
 
-from opportunity_discovery.workspace import initialize_workspace
-from opportunity_discovery.workspace_actions import change_workspace_opportunity, mark_workspace_opportunity
-from opportunity_discovery.workspace_application import create_application_request
-from opportunity_discovery.workspace_board import list_workspace_board
-from opportunity_discovery.workspace_state import apply_workspace_review
+from student_workspace.state import STATE_DIR
+from student_workspace.workspace import initialize_workspace
+
+from opportunity_discovery.actions import change_workspace_opportunity, mark_workspace_opportunity
+from opportunity_discovery.board import list_workspace_board
+from opportunity_discovery.handoff import request_for_opportunity
+from opportunity_discovery.review import apply_workspace_review
 
 ENGINE = Path(__file__).resolve().parents[1]
 DEMO = ENGINE / "tests" / "fixtures" / "demo"
@@ -24,7 +26,7 @@ def create_demo(root: Path) -> dict[str, object]:
     if root.exists():
         raise ValueError(f"demo destination already exists: {root}")
     root.mkdir(parents=True)
-    initialize_workspace(root, engine_path=ENGINE)
+    initialize_workspace(root)
     profile = root / "knowledge" / "PROFILE.md"
     profile.write_text(
         "# Fictional demo profile\n\n"
@@ -54,7 +56,7 @@ def create_demo(root: Path) -> dict[str, object]:
                 "custom": {"synthetic": True},
             }
         )
-    generation = root / ".opdisc" / "demo-generation"
+    generation = root / STATE_DIR / "demo-generation"
     generation.mkdir()
     payload = "".join(json.dumps(item, sort_keys=True) + "\n" for item in candidates).encode("utf-8")
     (generation / "candidates.jsonl").write_bytes(payload)
@@ -86,7 +88,7 @@ def create_demo(root: Path) -> dict[str, object]:
 
     application = json.loads((DEMO / "phase8-application.json").read_text(encoding="utf-8"))
     request = application["request"]
-    result = create_application_request(
+    result = request_for_opportunity(
         root,
         application["opportunity_id"],
         request["artifact_type"],
@@ -120,7 +122,7 @@ def main() -> int:
         print(f"ERROR demo not created: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(result, indent=2))
-    print(f"Launch with: opdisc workspace-dashboard NEW-WORKSPACE-PATH --manifest {result['manifest_path']}")
+    print(f"Launch with: opdisc dashboard NEW-WORKSPACE-PATH --manifest {result['manifest_path']}")
     return 0
 
 

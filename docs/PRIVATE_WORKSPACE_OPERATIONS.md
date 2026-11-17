@@ -1,28 +1,28 @@
 # Review and manage your workspace
 
 Start with [profile and board setup](AI_SETUP.md) for the two AI prompts.
-Use the dashboard for everyday actions. The commands below cover manual imports,
-backups, and recovery.
+Use the dashboard for everyday actions. The commands below cover manual imports.
 
-Open PowerShell and run this setup, changing `$workspace` if you chose another location:
+Commands below run from PowerShell in your workspace folder:
 
 ```powershell
-$workspace = Join-Path ([Environment]::GetFolderPath("MyDocuments")) "Opportunity-Workspace"
-Set-Location -LiteralPath (Join-Path $workspace "engine\opportunity-discovery") -ErrorAction Stop
-$opdisc = ".\.venv\Scripts\opdisc.exe"
+$workspace = (Get-Location).Path
+$opdisc = ".\tools\.venv\Scripts\opdisc.exe"
 ```
 
-If you installed the engine elsewhere, use that folder in `Set-Location`. On Linux, run commands from the engine folder using your actual workspace path and `.venv/bin/opdisc` in place of `& $opdisc`.
+On Linux use `tools/.venv/bin/opdisc`. Backups, restore, knowledge snapshots and
+application checks belong to Student Workspace; see its `docs/recovery.md` and
+`docs/applications.md` in `tools/student-workspace/`.
 
 ## Open the dashboard
 
 On Windows, double-click **Open Dashboard.cmd** in your workspace. Keep its
 window open while using the dashboard; close it or press Ctrl+C to stop.
 
-For a manual launch from the project folder:
+For a manual launch:
 
 ```powershell
-& $opdisc workspace-dashboard $workspace
+& $opdisc dashboard $workspace
 ```
 
 Open `http://127.0.0.1:8765/` if the browser does not open automatically. Stop the server with Ctrl+C.
@@ -42,20 +42,25 @@ Run one dashboard per workspace and stop it before changing that workspace throu
 ## Screening before research
 
 Your chosen AI prepares the private profile during onboarding. It uses
-[workspace-screening-profile.schema.json](../schemas/workspace-screening-profile.schema.json),
+[opportunity-screening-profile.schema.json](../schemas/opportunity-screening-profile.schema.json),
 saves the input outside the checkout, and imports it with:
 
 ```powershell
-& $opdisc workspace-profile $workspace (Join-Path $workspace "screening-profile.json")
-& $opdisc workspace-screen $workspace
-& $opdisc workspace-screening $workspace --limit 25
+& $opdisc profile $workspace (Join-Path $workspace "screening-profile.json")
+& $opdisc screen $workspace
+& $opdisc screening $workspace --limit 25
 ```
 
-`workspace-profile` validates and saves `.opdisc/screening-profile.json`.
+`profile` validates and saves `.student-workspace/screening-profile.json`.
 It never changes the public collector configuration. The profile contains major
 aliases, interests, graduation month, enrollment status, year in the program,
 and separately recorded unit-based class standing. Missing personal facts stay
 null. The experience limit is optional; do not infer a limit of zero for students.
+List `interest_keywords` in the user's own priority order, copied from
+`knowledge/PROFILE.md`. Within the same stage preference, review reason and
+screening state, the Feed lists leads matching an earlier interest first. The
+order never changes screening state and never hides a lead, and the engine has
+no built-in ranking of fields; deeper fit judgment stays with the user's AI.
 Read existing material and settings before asking onboarding questions. Reuse
 documented answers, ask about contradictions once, and distinguish optional
 qualifications from requirements. Keep actual degree names in `majors`; use
@@ -142,15 +147,15 @@ aliases, incomplete location text, or other unresolved geography stays a
 question for the optional AI pass. The AI can expand aliases when supported;
 the collector does not call an AI or infer geographic boundaries.
 
-`workspace-screen` processes every record in manifest-verified `candidates.jsonl`,
+`screen` processes every record in manifest-verified `candidates.jsonl`,
 including records outside the generic queue. It saves private findings in
-`.opdisc/screening.json`: worth investigating, needs clarification, or low
+`.student-workspace/screening.json`: worth investigating, needs clarification, or low
 relevance, with evidence reasons and unresolved questions. It preserves
 unchanged findings, removed records, and custom extensions. Changed candidate
 facts, changed profile settings, or a new screening rules version invalidate
 the relevant saved findings. It does not change the application board.
 
-`workspace-screening` reads a recommended review batch for your agent; it makes
+`screening` reads a recommended review batch for your agent; it makes
 no AI calls and writes nothing. Each `review_selection` explains the next action:
 official research, bounded source clarification, shared profile questions,
 carried findings, or deferred lower-priority work. Clear matches and promising
@@ -197,7 +202,7 @@ stay separate from alternative degree options. Conflicting source contexts and
 extraction limits remain visible questions. Partial or conditional travel funding
 does not establish covered travel.
 
-For smaller AI inputs, use `workspace-screening --compact`. This shares the
+For smaller AI inputs, use `screening --compact`. This shares the
 documented profile once per batch, preserves candidate hashes and source quotes,
 and removes exact repeated constraint lines from the accompanying requirements
 text. The default full view remains available. Compact output is read-only and
@@ -206,7 +211,7 @@ does not change the screening/review import contracts.
 To check missed leads as well as selected ones, read an audit batch:
 
 ```powershell
-& $opdisc workspace-screening $workspace --audit-sample --limit 30
+& $opdisc screening $workspace --audit-sample --limit 30
 ```
 
 This bypasses display caps and interleaves reproducible samples from selected,
@@ -228,15 +233,15 @@ Suggested results also respect existing dismissed, completed, and waiting board
 decisions. Use `--state all --uncapped` to recover every matching collected lead.
 
 For semantic interpretation of a small batch, the AI may prepare a
-[workspace-screening-response.schema.json](../schemas/workspace-screening-response.schema.json)
+[opportunity-screening-response.schema.json](../schemas/opportunity-screening-response.schema.json)
 response and run:
 
 ```powershell
-& $opdisc workspace-apply-screening $workspace (Join-Path $workspace "screening-response.json")
+& $opdisc apply-screening $workspace (Join-Path $workspace "screening-response.json")
 ```
 
 The response must match the current export generation, normalized profile hash,
-and each candidate's facts hash from `workspace-screening`. It quotes captured
+and each candidate's facts hash from `screening`. It quotes captured
 candidate fields, applies at most 100 decisions, preserves unresolved personal
 GPA/coursework/authorization/experience/class-standing, completed-degree,
 term-time availability, and clearance questions, and cannot
@@ -247,7 +252,7 @@ carried forward without dropping unanswered personal requirements.
 Keep these passes small; normalizing shared preferences once is usually more
 useful than asking an AI to read every lead.
 
-Official-page findings still use `workspace-apply-review` below. Coverage counts
+Official-page findings still use `apply-review` below. Coverage counts
 saved current screening, plausible screened leads, reported official checks,
 and actionable leads awaiting investigation. A checked page can still require
 investigation after a material source change, an approaching deadline (21 days),
@@ -265,17 +270,16 @@ review and import its findings. For a manual import of a saved `review.json`,
 run:
 
 ```powershell
-& $opdisc workspace-apply-review $workspace (Join-Path $workspace "review.json") --manifest .\output\export_manifest.json
+& $opdisc apply-review $workspace (Join-Path $workspace "review.json")
 ```
 
 A successful import makes the decisions available in the dashboard. If the command rejects a response, correct the reported problem before retrying. If collection has generated new exports, ask the agent to refresh its response against them.
 
-On Linux, from the project folder:
+On Linux:
 
 ```bash
-workspace="/path/to/Opportunity-Workspace"
-.venv/bin/opdisc workspace-apply-review "$workspace" "$workspace/review.json" --manifest output/export_manifest.json
-.venv/bin/opdisc workspace-dashboard "$workspace"
+tools/.venv/bin/opdisc apply-review . review.json
+tools/.venv/bin/opdisc dashboard .
 ```
 
 The 40-lead packet is a starting sample, not a complete review. Prefer a bounded
@@ -289,76 +293,22 @@ Select a reviewed opportunity and use **Application preparation**. Choose the ki
 
 Open that folder's `HANDOFF.md` with your agent. It contains the request and references; the agent can save drafts in `drafts/` and later versions in `revisions/`. Review the result yourself before applying. Creating a request does not invoke an agent or submit an application.
 
-For CLI requests, use `workspace-request --help`. Reference files must exist under the workspace's `sources/` or `knowledge/` folders.
-
-## Backup and restore
-
-Stop the dashboard and other workspace-changing commands before backing up or restoring.
-
-Create a full backup outside your workspace:
-
-```powershell
-$backupFolder = Join-Path (Split-Path $workspace -Parent) "Opportunity-Backups"
-$backup = Join-Path $backupFolder ("workspace-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".zip")
-& $opdisc backup-workspace $workspace $backup --kind full
-```
-
-A full backup preserves your workspace files, including skills and folders you add. It also includes the dashboard launcher and `config/default.toml` and `config/sources.toml` from the engine folder inside your workspace. The command creates the backup folder if needed.
-
-Engine code, Python environments, Git history, generated caches and temporary files, and earlier workspace backup ZIPs are excluded. Files linked from outside your workspace are not copied.
-
-For a smaller backup, use `--kind state`. It keeps instructions, skills, knowledge, board state, applications, history, the launcher, and collector settings. It omits `inbox/`, `sources/`, and other custom folders.
-
-Backups are **unencrypted ZIP files containing private information**. Store them accordingly and use a new filename for each backup.
-
-On a new computer or after removing your workspace, [install the app](OPERATIONS_WINDOWS.md#new-installation) first. Then run the PowerShell setup at the top of this page with the workspace you want to restore.
-
-Choose the backup ZIP and restore:
-
-```powershell
-$backup = Read-Host "Full path to the workspace backup ZIP"
-& $opdisc restore-workspace $workspace $backup
-```
-
-Restore checks the archive and creates a full backup of your current workspace before replacing matching files. It leaves unrelated files in place and reports the pre-restore backup path. It is not an exact rollback that deletes newer files.
-
-## Recover generated knowledge
-
-Review imports and reasoned feedback save snapshots of the generated knowledge files they change. These are not backups of everything an agent edits; use a full workspace backup for that.
-
-```powershell
-& $opdisc knowledge-snapshots $workspace
-```
-
-Choose a snapshot ID from the output, compare it, and restore only if it contains the version you want:
-
-```powershell
-$snapshot = Read-Host "Snapshot ID"
-& $opdisc compare-knowledge $workspace $snapshot
-```
-
-After inspecting the comparison:
-
-```powershell
-& $opdisc restore-knowledge $workspace $snapshot
-```
-
-Restore saves the current generated knowledge first. Retention keeps the latest daily snapshot for 30 days and one per older month.
+For CLI requests, use `opdisc request --help`; to check a finished handoff, run `student-workspace apply check`. Reference files must exist under the workspace's `sources/` or `knowledge/` folders.
 
 ## Try the fictional demo
 
-From the project folder, create a new temporary workspace:
+Create a new temporary workspace:
 
 ```powershell
 $demo = Join-Path $env:TEMP ("Opportunity-Demo-" + [guid]::NewGuid().ToString("N"))
-.\.venv\Scripts\python.exe scripts\demo_workspace.py $demo
+.\tools\.venv\Scripts\python.exe tools\opportunity-discovery\scripts\demo_workspace.py $demo
 ```
 
 After creation succeeds, open it using its synthetic exports:
 
 ```powershell
-$demoManifest = Join-Path $demo ".opdisc\demo-generation\export_manifest.json"
-& $opdisc workspace-dashboard $demo --manifest $demoManifest
+$demoManifest = Join-Path $demo ".student-workspace\demo-generation\export_manifest.json"
+& $opdisc dashboard $demo --manifest $demoManifest
 ```
 
 The demo contains fictional leads, a profile, and an application request with a fake draft. It refuses an existing destination.
@@ -367,12 +317,9 @@ The demo contains fictional leads, a profile, and an application request with a 
 
 Use `& $opdisc COMMAND --help` for arguments to a specific command. The [integration contract](INTEGRATION_CONTRACT.md) describes the review rules and formats.
 
-- [Review responses](../schemas/workspace-review.schema.json) must match the selected export generation. Older reviews cannot replace newer ones. Repeating the same accepted response is safe. Promotion requires the official evidence and eligibility checks described in the contract.
-- [Feedback responses](../schemas/workspace-feedback.schema.json) require a reason for Done/Delete and a `preference_signals` list, which can be empty. Older feedback cannot replace a later Done/Delete/restore action. Feedback learns named soft preferences, not collector configuration or hard filters.
-- `workspace-board` and `workspace-history` provide filtered, paginated JSON for integrations. Per-opportunity history is incomplete for records created before board-action logging was added.
-- `workspace-pipeline`, `workspace-wait`, and `workspace-resume` update application progress and waiting state. Done moves an item to History without changing its factual pipeline state.
-- Application results can use the [application response schema](../schemas/workspace-application-response.schema.json). The profile and catalog are included as request references when present.
-- `workspace-audit` checks for private files tracked in Git and missing or changed references. A dirty-engine warning means you should preserve local changes before updating.
-- `.opdisc/checkpoint.json` records operation progress and recovery instructions. Files are replaced individually, not as one transaction; do not run concurrent workspace mutations.
-
-Backup and recovery reject unsafe archive paths and symlinked files. These checks do not encrypt your data or control who can access your computer.
+- [Review responses](../schemas/opportunity-review.schema.json) must match the selected export generation. Older reviews cannot replace newer ones. Repeating the same accepted response is safe. Promotion requires the official evidence and eligibility checks described in the contract.
+- [Feedback responses](../schemas/opportunity-feedback.schema.json) require a reason for Done/Delete and a `preference_signals` list, which can be empty. Older feedback cannot replace a later Done/Delete/restore action. Feedback learns named soft preferences, not collector configuration or hard filters.
+- `board` and `history` provide filtered, paginated JSON for integrations. Per-opportunity history is incomplete for records created before board-action logging was added.
+- `pipeline`, `wait`, and `resume` update application progress and waiting state. Done moves an item to History without changing its factual pipeline state.
+- Application results can use the [application response schema](https://github.com/lai-derek/student-workspace/blob/main/schemas/application-response.schema.json). The profile and catalog are included as request references when present.
+- `.student-workspace/checkpoint.json` records operation progress and recovery instructions. Files are replaced individually, not as one transaction; do not run concurrent workspace mutations.

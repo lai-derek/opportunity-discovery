@@ -1,7 +1,7 @@
 # Set up your profile and first board
 
-Follow these steps after [installing](OPERATIONS_WINDOWS.md#new-installation).
-Open your Opportunity-Workspace folder as a project in your AI tool. It needs
+Follow these steps after installing with the Student Workspace setup.
+Open your Student Workspace folder as a project in your AI tool. It needs
 access to files and local commands; reviewing opportunities also needs web access.
 The included AGENTS.md and CLAUDE.md point to WORKSPACE.md. With another tool,
 ask it to read WORKSPACE.md.
@@ -14,8 +14,8 @@ are optional. Start with what you have.
 
 Send this prompt:
 
-> Read WORKSPACE.md and the current profile instructions in the engine's
-> docs/PRIVATE_WORKSPACE_OPERATIONS.md. Organize my supplied material and inbox
+> Read WORKSPACE.md and the current profile instructions in
+> tools/opportunity-discovery/docs/PRIVATE_WORKSPACE_OPERATIONS.md. Organize my supplied material and inbox
 > into a profile and catalog, preserving the originals. Use documented answers
 > first; ask concise questions about missing information that affects screening,
 > including study stage, major, graduation, interests, and available locations.
@@ -31,7 +31,7 @@ Read `knowledge/PROFILE.md` to check what it understood.
 `knowledge/CATALOG.md` points to useful supporting material.
 You can customize WORKSPACE.md to suit how you want your AI to work.
 
-The AI also saves a structured screening profile under `.opdisc/`. It translates
+The AI also saves a structured screening profile under `.student-workspace/`. It translates
 your preferences into rules ordinary code can use, including metropolitan
 regions and city aliases. You do not need to write JSON or choose an AI provider
 inside the app. Check the AI's summary of the regions and other settings.
@@ -45,8 +45,9 @@ and catalog.
 
 Send this prompt when you want recommendations:
 
-> Read WORKSPACE.md and the current review instructions in the engine's
-> docs/PRIVATE_WORKSPACE_OPERATIONS.md and docs/INTEGRATION_CONTRACT.md. Create my
+> Read WORKSPACE.md and the current review instructions in
+> tools/opportunity-discovery/docs/PRIVATE_WORKSPACE_OPERATIONS.md and
+> INTEGRATION_CONTRACT.md beside it. Create my
 > opportunity board: collect leads, screen the full collection, and investigate
 > a recommended compact batch, including promising leads that need clarification.
 > Reuse saved findings and documented profile answers. Prioritize new or changed
@@ -59,14 +60,15 @@ Send this prompt when you want recommendations:
 
 Your AI needs web and command access to complete this step.
 
-**Home** shows reviewed opportunities that need attention.
-**Explore** shows personal screening across the full collection when a screening
-profile exists. Screening is labeled separately from official-page research.
-Category balancing and a per-employer display cap keep large boards from taking
-over the feed. In early mode, preferred exploratory and early-year programs are
-exempt from that cap. Its filters can recover low-relevance leads and show records
-beyond the cap. Without a screening profile, Explore uses the public review
-queue. You can select that public view explicitly at any time.
+The dashboard has two views:
+
+- **Home** shows opportunities your AI has reviewed that need your attention.
+  It's empty until the first review is imported.
+- **Explore** shows every collected lead, ranked against your screening profile.
+  Leads your AI has checked on the official page are labeled separately from
+  leads that were only screened. Large employers are capped so they don't
+  crowd out everything else; use the filters to see more. Without a screening
+  profile, Explore shows the general public list.
 
 ## 3. Open and use it afterward
 
@@ -77,15 +79,12 @@ If the browser does not open, visit [the dashboard](http://127.0.0.1:8765/).
 Use **Done** when no further action is needed, **Delete** to hide an unwanted
 item, and **Restore** to bring either back.
 
-To refresh recommendations, stop the dashboard and ask your AI to collect,
-screen, and investigate using the same instructions. Deterministic screening
-does not consume AI usage. Semantic screening and research use your chosen AI
-only when you ask it to work; the app does not call a model. Daily collection
-does not refresh Home by itself.
+Daily collection adds new leads to Explore but doesn't update Home. To refresh
+recommendations, stop the dashboard and send the step 2 prompt again. Screening
+itself is ordinary code; only the research your AI does uses your AI tool.
 
 For application drafts, select an opportunity's **Application preparation**
 section and describe what you want. Give the resulting HANDOFF.md to your AI.
 Review drafts yourself before applying.
 
-See [workspace operations](PRIVATE_WORKSPACE_OPERATIONS.md) for manual commands
-and backups, or [troubleshooting](TROUBLESHOOTING.md) if a step fails.
+See [workspace operations](PRIVATE_WORKSPACE_OPERATIONS.md) for manual commands, or [troubleshooting](TROUBLESHOOTING.md) if a step fails.

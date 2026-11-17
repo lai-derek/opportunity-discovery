@@ -133,7 +133,7 @@ def _tracked_files(root: Path) -> list[Path]:
             return sorted({root / line for line in out.stdout.splitlines() if line.strip()})
         # Nothing tracked yet: fall through to a working-tree preview so the
         # audit remains useful before the first commit.
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except subprocess.CalledProcessError, FileNotFoundError:
         pass
     # fallback: filesystem walk when git is unavailable. Vendored/environment
     # directories are never publishable and are skipped for speed; generated
@@ -188,7 +188,7 @@ def audit_repository(root: Path) -> AuditReport:
 
         try:
             text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+        except UnicodeDecodeError, OSError:
             continue  # binary or unreadable: filename checks above still applied
 
         lines = text.splitlines()

@@ -10,14 +10,26 @@ def _cutoff(days: int) -> str:
     return (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
 
+# A run row is removable only when no history row still references it. Source
+# checks pruned in the same pass (older than the check cutoff) do not count.
+_UNREFERENCED_RUN = (
+    "started_at < ?"
+    " AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.run_id = collection_runs.run_id)"
+    " AND NOT EXISTS (SELECT 1 FROM changes ch WHERE ch.run_id = collection_runs.run_id)"
+    " AND NOT EXISTS (SELECT 1 FROM source_checks sc"
+    " WHERE sc.run_id = collection_runs.run_id AND sc.checked_at >= ?)"
+)
+
+
 def plan_prune(
     conn: sqlite3.Connection, *, cache_days: int, log_days: int, check_days: int
 ) -> list[dict[str, object]]:
+    # Order matters: source checks go before the runs they reference.
     plans = [
         ("raw_cache", "expires_at < ?", (_cutoff(0),)),
         ("raw_cache", "fetched_at < ? AND expires_at < ?", (_cutoff(cache_days), _cutoff(cache_days))),
-        ("collection_runs", "started_at < ?", (_cutoff(max(log_days * 30, 90)),)),
         ("source_checks", "checked_at < ?", (_cutoff(check_days),)),
+        ("collection_runs", _UNREFERENCED_RUN, (_cutoff(max(log_days * 30, 90)), _cutoff(check_days))),
     ]
     out: list[dict[str, object]] = []
     for table, where, params in plans:
@@ -26,7 +38,7 @@ def plan_prune(
             tuple(params),
         ).fetchone()
         if row["n"]:
-            out.append({"table": table, "where": where, "rows": int(row["n"])})
+            out.append({"table": table, "where": where, "params": list(params), "rows": int(row["n"])})
     return out
 
 
